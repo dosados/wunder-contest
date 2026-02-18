@@ -1,6 +1,8 @@
 import numpy as np
 from utils import DataPoint
 
+#utils лежит внутри директории с датасетом
+
 class PredictionModel:
     def __init__(self):
         # Initialize your model, load weights, etc.
