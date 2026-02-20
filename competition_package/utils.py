@@ -1,5 +1,5 @@
 import numpy as np
-import pandas as pd
+import pyarrow.parquet as pq
 from tqdm.auto import tqdm
 from dataclasses import dataclass
 
@@ -72,14 +72,15 @@ class PredictionModel:
 
 class ScorerStepByStep:
     def __init__(self, dataset_path: str):
-        self.dataset = pd.read_parquet(dataset_path)
-
-        # Calc feature dimension: first 3 columns are seq_ix, step_in_seq & need_prediction
-        # Total columns: 3 metadata + 32 features + 2 targets = 37
-        # Features are cols [3:35]
+        table = pq.read_table(dataset_path)
+        # First 3 columns: seq_ix, step_in_seq, need_prediction; then 32 features, then 2 targets
         self.dim = 2
-        self.features = self.dataset.columns[3:35]
-        self.targets = self.dataset.columns[35:]
+        self.features = table.column_names[3:35]
+        self.targets = table.column_names[35:]
+        # Один массив по строкам для быстрой итерации без pandas
+        self._rows = np.column_stack([
+            table.column(j).to_numpy() for j in range(table.num_columns)
+        ])
 
     def score(self, model: PredictionModel) -> dict:
         predictions = []
@@ -87,8 +88,7 @@ class ScorerStepByStep:
 
         prediction = None
 
-        # Iterate over numpy array for speed
-        for row in tqdm(self.dataset.values):
+        for row in tqdm(self._rows):
             seq_ix = row[0]
             step_in_seq = row[1]
             need_prediction = row[2]
