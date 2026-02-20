@@ -3,7 +3,7 @@ Hybrid Conv + Transformer модель для предсказания сост�
 Архитектура: description.md.
 """
 
-from .hybrid_model import HybridConvTransformer
-from ..config import ModelConfig
+from .full_model import FullModel, PredictionHead
+from .model_state import ModelState
 
-__all__ = ["HybridConvTransformer", "ModelConfig"]
+__all__ = ["FullModel", "PredictionHead", "ModelState"]
