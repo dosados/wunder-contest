@@ -1,9 +1,10 @@
 import numpy as np
 import pyarrow.parquet as pq
 import torch
-from torch.utils.data import IterableDataset
+from torch.utils.data import Dataset, IterableDataset
 
 MIN_BATCH_MULTIPLE = 1000
+SEQ_LEN = 1000
 
 
 def _check_batch_size(batch_size: int) -> None:
@@ -59,6 +60,46 @@ class ParquetDataset(IterableDataset):
         meta = self._get_metadata()
         total_rows = meta.num_rows
         return (total_rows + self.batch_size - 1) // self.batch_size
+
+
+class ParquetSequenceDataset(Dataset):
+    """
+    Датасет, отдающий целые последовательности.
+    В parquet последовательности уже сгруппированы (одинаковый seq_ix идёт подряд),
+    шаги упорядочены — одна последовательность = 1000 подряд идущих строк.
+    Чтение через PyArrow, без pandas.
+    __getitem__ возвращает (x, y): x (SEQ_LEN, n_features), y (SEQ_LEN, n_targets).
+    """
+
+    def __init__(
+        self,
+        file_path: str,
+        feature_columns: list,
+        target_columns: list,
+        seq_len: int = SEQ_LEN,
+        dtype=torch.float32,
+    ):
+        self.dtype = dtype
+        self.seq_len = seq_len
+        self.feature_columns = list(feature_columns)
+        self.target_columns = list(target_columns)
+        columns = self.feature_columns + self.target_columns
+        table = pq.read_table(file_path, columns=columns)
+        self._table = table
+        self._n_sequences = table.num_rows // seq_len
+
+    def __len__(self):
+        return self._n_sequences
+
+    def __getitem__(self, idx):
+        start = idx * self.seq_len
+        chunk = self._table.slice(start, self.seq_len)
+        n_f = len(self.feature_columns)
+        # chunk has columns in order: feature_columns + target_columns
+        np_chunk = np.column_stack([chunk.column(i).to_numpy() for i in range(chunk.num_columns)])
+        x = torch.from_numpy(np_chunk[:, :n_f].copy()).to(dtype=self.dtype)
+        y = torch.from_numpy(np_chunk[:, n_f:].copy()).to(dtype=self.dtype)
+        return x, y
 
 
 if __name__ == "__main__":

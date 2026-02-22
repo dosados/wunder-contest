@@ -93,3 +93,31 @@ class StreamingTemporalConvModel(nn.Module):
         y3 = self.activation(y3)
 
         return y3
+
+    def forward_sequence(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Один проход по всей последовательности (для обучения).
+        x: (T, C) или (B, T, C), C = linear1_dim.
+        Возвращает: (T, conv3_dim) или (B, T, conv3_dim).
+        Causal padding — те же веса, что и в streaming forward.
+        """
+        squeeze = False
+        if x.dim() == 2:
+            squeeze = True
+            x = x.unsqueeze(0)  # (1, T, C)
+        # x: (B, T, C) -> (B, C, T)
+        x = x.transpose(1, 2)
+        x = F.pad(x, (self.kernel1 - 1, 0), mode="constant", value=0)
+        x = self.conv1(x)
+        x = self.activation(x)
+        x = F.pad(x, (self.kernel2 - 1, 0), mode="constant", value=0)
+        x = self.conv2(x)
+        x = self.activation(x)
+        x = F.pad(x, (self.kernel3 - 1, 0), mode="constant", value=0)
+        x = self.conv3(x)
+        x = self.activation(x)
+        # (B, conv3_dim, T) -> (B, T, conv3_dim)
+        x = x.transpose(1, 2)
+        if squeeze:
+            x = x.squeeze(0)
+        return x
