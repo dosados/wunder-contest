@@ -1,61 +1,94 @@
 import torch
 
-class ModelState:
-    def __init__(self, input_dim, conv_window, trans_window, conv_feat_dim=None, device='cpu'):
-        """
-        input_dim     : размерность входного состояния рынка (D)
-        conv_window   : длина буфера для Conv1D
-        trans_window  : длина буфера после Conv, для Transformer
-        conv_feat_dim : размерность выхода Conv (d_model); если None, берётся input_dim
-        device        : 'cpu' или 'cuda'
-        """
+
+class _RingBuffer:
+    """Внутренний класс кольцевого буфера"""
+    def __init__(self, window, feat_dim, device='cpu'):
+        self.window = window
+        self.feat_dim = feat_dim
         self.device = device
-        self.conv_window = conv_window
-        self.trans_window = trans_window
-        self.conv_feat_dim = conv_feat_dim if conv_feat_dim is not None else input_dim
 
-        # Буфер для сырых состояний (Conv)
-        self.raw_buffer = torch.zeros(conv_window, input_dim, device=device)
-        self.raw_pos = 0
-        self.raw_full = False
+        self.buffer = torch.zeros(window, feat_dim, device=device)
+        self.pos = 0
+        self.full = False
 
-        # Буфер для Conv-фичей (Transformer), размерность d_model
-        self.conv_buffer = torch.zeros(trans_window, self.conv_feat_dim, device=device)
-        self.conv_pos = 0
-        self.conv_full = False
+    def add(self, x):
+        self.buffer[self.pos] = x
+        self.pos = (self.pos + 1) % self.window
+        if self.pos == 0:
+            self.full = True
 
-    def add_raw(self, x):
-        """Добавляем новое состояние в raw_buffer"""
-        self.raw_buffer[self.raw_pos] = x
-        self.raw_pos = (self.raw_pos + 1) % self.conv_window
-        if self.raw_pos == 0:
-            self.raw_full = True
-
-    def get_raw_sequence(self):
-        """Возвращает последовательность из raw_buffer в правильном порядке"""
-        if not self.raw_full:
-            return self.raw_buffer[:self.raw_pos]
-        return torch.cat([self.raw_buffer[self.raw_pos:], self.raw_buffer[:self.raw_pos]], dim=0)
-
-    def add_conv(self, conv_feat):
-        """Добавляем Conv-фичу в conv_buffer"""
-        self.conv_buffer[self.conv_pos] = conv_feat
-        self.conv_pos = (self.conv_pos + 1) % self.trans_window
-        if self.conv_pos == 0:
-            self.conv_full = True
-
-    def get_conv_sequence(self):
-        """Возвращает последовательность Conv-фичей для Transformer"""
-        if not self.conv_full:
-            return self.conv_buffer[:self.conv_pos]
-        return torch.cat([self.conv_buffer[self.conv_pos:], self.conv_buffer[:self.conv_pos]], dim=0)
+    def get_sequence(self):
+        if not self.full:
+            return self.buffer[:self.pos]
+        return torch.cat(
+            [self.buffer[self.pos:], self.buffer[:self.pos]],
+            dim=0
+        )
 
     def reset(self):
-        """Сбрасываем все буферы (при смене sequence)"""
-        self.raw_buffer.zero_()
-        self.raw_pos = 0
-        self.raw_full = False
+        self.buffer.zero_()
+        self.pos = 0
+        self.full = False
 
-        self.conv_buffer.zero_()
-        self.conv_pos = 0
-        self.conv_full = False
+    def detach(self):
+        """Отвязка буфера от графа вычислений (для переноса состояния между батчами)."""
+        self.buffer = self.buffer.detach().clone()
+
+
+class ModelState:
+    def __init__(
+        self,
+        conv1_window,
+        conv2_window,
+        conv3_window,
+        conv1_feat_dim,
+        conv2_feat_dim,
+        conv3_feat_dim,
+        device='cpu'
+    ):
+        """
+        conv{i}_window   : длина окна контекста для i-го Conv слоя
+        conv{i}_feat_dim : размерность признаков i-го Conv слоя
+        device           : 'cpu' или 'cuda'
+        """
+
+        self.device = device
+
+        # Три независимых буфера
+        self.conv1 = _RingBuffer(conv1_window, conv1_feat_dim, device)
+        self.conv2 = _RingBuffer(conv2_window, conv2_feat_dim, device)
+        self.conv3 = _RingBuffer(conv3_window, conv3_feat_dim, device)
+
+    # ===== Conv1 =====
+    def add_conv1(self, x):
+        self.conv1.add(x)
+
+    def get_conv1_sequence(self):
+        return self.conv1.get_sequence()
+
+    # ===== Conv2 =====
+    def add_conv2(self, x):
+        self.conv2.add(x)
+
+    def get_conv2_sequence(self):
+        return self.conv2.get_sequence()
+
+    # ===== Conv3 =====
+    def add_conv3(self, x):
+        self.conv3.add(x)
+
+    def get_conv3_sequence(self):
+        return self.conv3.get_sequence()
+
+    # ===== Reset =====
+    def reset(self):
+        self.conv1.reset()
+        self.conv2.reset()
+        self.conv3.reset()
+
+    def detach(self):
+        """Отвязка состояния от графа (TBPTT: контекст переносится, градиент через границу батча не идёт)."""
+        self.conv1.detach()
+        self.conv2.detach()
+        self.conv3.detach()

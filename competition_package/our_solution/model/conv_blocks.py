@@ -1,79 +1,95 @@
-"""
-Блок свёрток по времени (1D Conv over time) для архитектуры Conv + Transformer.
-Извлекает локальные временные паттерны из последовательности [B, T, d_model].
-Свёртка выполняется по оси времени (T).
-"""
-
 import torch
 import torch.nn as nn
-from typing import List, Optional
+import torch.nn.functional as F
+
+from model.model_state import ModelState
+from constants import convo_constants, DEVICE
+
+current_constants = convo_constants
 
 
-class TemporalConvBlock(nn.Module):
+class StreamingTemporalConvModel(nn.Module):
     """
-    Один блок: Conv1D по времени + GELU + residual (если размерность совпадает).
-    Вход/выход по каналам: d_model.
-    """
-
-    def __init__(
-        self,
-        d_model: int,
-        kernel_size: int = 3,
-        dilation: int = 1,
-        residual: bool = True,
-    ):
-        super().__init__()
-        padding = (kernel_size - 1) * dilation  # для сохранения длины при causal-подобной свёртке
-        # padding слева, чтобы не заглядывать в будущее (causal)
-        self.pad_left = padding
-        self.conv = nn.Conv1d(d_model, d_model, kernel_size, dilation=dilation)
-        self.activation = nn.GELU()
-        self.residual = residual and (kernel_size > 1)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (B, T, d_model) -> (B, d_model, T)
-        x_t = x.transpose(1, 2)
-        if self.pad_left > 0:
-            x_t = nn.functional.pad(x_t, (self.pad_left, 0), mode="constant", value=0)
-        out = self.conv(x_t)
-        out = self.activation(out)
-        # при pad_left = (kernel_size-1)*dilation выходная длина = T
-        # (B, d_model, T) -> (B, T, d_model)
-        out = out.transpose(1, 2)
-        if self.residual:
-            out = out + x
-        return out
-
-
-class TemporalConvStack(nn.Module):
-    """
-    Несколько слоёв 1D свёрток по времени (kernel 3–5, с dilation, residual, GELU).
-    Вход: [B, T, d_model], выход: [B, T, d_model].
-    Подходит для использования после линейной проекции и перед Transformer.
+    3 causal Conv1D слоя.
+    Работает в streaming-режиме: на вход получает один вектор (D,).
+    Если окно не заполнено — применяется zero-padding слева.
     """
 
     def __init__(
         self,
-        d_model: int,
-        kernel_sizes: Optional[List[int]] = None,
-        dilations: Optional[List[int]] = None,
-        residual: bool = True,
+        activation=nn.GELU()
     ):
         super().__init__()
-        kernel_sizes = kernel_sizes or [5, 3, 3]
-        dilations = dilations or [1, 2, 1]
-        if len(dilations) != len(kernel_sizes):
-            dilations = [1] * len(kernel_sizes)
-        self.blocks = nn.ModuleList([
-            TemporalConvBlock(d_model, kernel_size=k, dilation=d, residual=residual)
-            for k, d in zip(kernel_sizes, dilations)
-        ])
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        linear1_dim = current_constants.get("linear1_dim")
+        hidden_dim1 = current_constants.get("conv1_dim")
+        hidden_dim2 = current_constants.get("conv2_dim")
+        hidden_dim3 = current_constants.get("conv3_dim")
+        kernel1 = current_constants.get("conv1_window")
+        kernel2 = current_constants.get("conv2_window")
+        kernel3 = current_constants.get("conv3_window")
+
+        self.conv1 = nn.Conv1d(linear1_dim, hidden_dim1, kernel1, bias=True)
+        self.conv2 = nn.Conv1d(hidden_dim1, hidden_dim2, kernel2, bias=True)
+        self.conv3 = nn.Conv1d(hidden_dim2, hidden_dim3, kernel3, bias=True)
+
+        self.activation = activation
+
+        self.kernel1 = kernel1
+        self.kernel2 = kernel2
+        self.kernel3 = kernel3
+
+        self.state = ModelState(kernel1, kernel2, kernel3, hidden_dim1, hidden_dim2, hidden_dim3, DEVICE)
+
+    def _forward_conv(self, conv, seq, kernel_size):
         """
-        x: (B, T, d_model) — эмбеддинги после линейной проекции.
-        Возвращает: (B, T, d_model) — признаки после свёрток по времени.
+        seq: (T, D)
+        Делает causal свёртку с zero-padding слева при необходимости.
+        Возвращает последний timestep.
         """
-        for block in self.blocks:
-            x = block(x)
-        return x
+
+        T, D = seq.shape
+
+        if T < kernel_size:
+            pad_len = kernel_size - T
+            pad = torch.zeros(pad_len, D, device=seq.device, dtype=seq.dtype)
+            seq = torch.cat([pad, seq], dim=0)
+        else:
+            seq = seq[-kernel_size:]
+
+        # (K, D) -> (1, D, K)
+        x = seq.transpose(0, 1).unsqueeze(0)
+
+        # Conv1d без встроенного padding
+        out = conv(x)
+
+        # (1, C, 1) -> (C,)
+        return out.squeeze(0).squeeze(-1)
+
+    def forward(self, x_t: torch.Tensor):
+        """
+        x_t: (input_dim,)
+        state: ModelState
+
+        Возвращает: (hidden_dim3,)
+        """
+
+        # ---- Conv1 ----
+        self.state.add_conv1(x_t)
+        seq1 = self.state.get_conv1_sequence()
+        y1 = self._forward_conv(self.conv1, seq1, self.kernel1)
+        y1 = self.activation(y1)
+
+        # ---- Conv2 ----
+        self.state.add_conv2(y1)
+        seq2 = self.state.get_conv2_sequence()
+        y2 = self._forward_conv(self.conv2, seq2, self.kernel2)
+        y2 = self.activation(y2)
+
+        # ---- Conv3 ----
+        self.state.add_conv3(y2)
+        seq3 = self.state.get_conv3_sequence()
+        y3 = self._forward_conv(self.conv3, seq3, self.kernel3)
+        y3 = self.activation(y3)
+
+        return y3

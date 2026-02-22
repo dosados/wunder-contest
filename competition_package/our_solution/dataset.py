@@ -3,7 +3,6 @@ import pyarrow.parquet as pq
 import torch
 from torch.utils.data import IterableDataset
 
-# Размер батча при чтении parquet должен быть кратен 1000
 MIN_BATCH_MULTIPLE = 1000
 
 
@@ -64,7 +63,14 @@ class ParquetDataset(IterableDataset):
 
 if __name__ == "__main__":
     # Пример: чтение по батчам по 1000 строк
-    dataset = ParquetDataset("data.parquet", batch_size=1000)
+    dataset = ParquetDataset(
+        "/home/timofey/Documents/own/wunder-contest/competition_package/datasets/train.parquet", 
+        batch_size=100000
+        )
+    K = 0
+
     for batch in dataset:
         # batch — тензор [batch_size, feature_dim]
-        print(batch.shape)
+        K += 1
+        print(K, "size: ", batch.shape)
+
