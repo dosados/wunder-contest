@@ -49,9 +49,9 @@ TRAIN_PATH = os.path.join(CURRENT_DIR, "..", "datasets", "train.parquet")
 VAL_PATH = os.path.join(CURRENT_DIR, "..", "datasets", "valid.parquet")
 VAL_FROM_TRAIN_BATCHES = 50  # первых N батчей train как val, если VAL_PATH недоступен; 0 = без val
 # Батч загрузки датасета — сколько строк за раз читаем из parquet. Должен быть кратен MIN_BATCH_MULTIPLE.
-LOADER_BATCH_SIZE = MIN_BATCH_MULTIPLE * 20
+LOADER_BATCH_SIZE = MIN_BATCH_MULTIPLE * 50
 # Батч обучения — размер одного шага optimizer.step(); должен делить LOADER_BATCH_SIZE.
-TRAIN_BATCH_SIZE = MIN_BATCH_MULTIPLE 
+TRAIN_BATCH_SIZE = MIN_BATCH_MULTIPLE * 2
 assert LOADER_BATCH_SIZE % TRAIN_BATCH_SIZE == 0, "LOADER_BATCH_SIZE должен делиться на TRAIN_BATCH_SIZE"
 EPOCHS = 3
 LR = 1e-3
