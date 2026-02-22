@@ -52,8 +52,8 @@ VAL_PATH = os.path.join(CURRENT_DIR, "..", "datasets", "valid.parquet")
 VAL_FROM_TRAIN_BATCHES = 50  # первых N батчей train как val, если VAL_PATH недоступен; 0 = без val
 # Батч обучения — сколько последовательностей за один forward
 SEQUENCE_BATCH_SIZE = 16
-EPOCHS = 30
-LR = 1e-2
+EPOCHS = 50
+LR = 1e-3
 SAVE_NAME = "model.pt"
 
 # Диапазон клипа предсказаний (как в utils.weighted_pearson_correlation)

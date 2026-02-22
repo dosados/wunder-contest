@@ -13,3 +13,10 @@ build/
 .venv/
 venv/
 env/
+
+# Model weights
+**/weights/
+*.pt
+
+# VS Code
+.vscode/

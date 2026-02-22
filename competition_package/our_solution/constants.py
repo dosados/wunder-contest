@@ -1,13 +1,10 @@
 convo_constants = {
     "input_dim": 32,
     "linear1_dim": 64,
-    "conv1_window": 3,
-    "conv2_window": 128,
-    "conv3_window": 256,
-    "conv1_dim": 128,
-    "conv2_dim": 128,
-    "conv3_dim": 128,
-    "linear2_dim": 64,
+    "conv_window": 5,
+    "conv_dim": 128,
+    "lstm_hidden": 256,
+    "lstm_num_layers": 1,
     "output_dim": 2,
 }
 

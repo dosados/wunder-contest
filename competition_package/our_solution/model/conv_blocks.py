@@ -10,114 +10,66 @@ current_constants = convo_constants
 
 class StreamingTemporalConvModel(nn.Module):
     """
-    3 causal Conv1D слоя.
-    Работает в streaming-режиме: на вход получает один вектор (D,).
-    Если окно не заполнено — применяется zero-padding слева.
+    Один causal Conv1D слой.
+    Streaming: один вектор (D,) за раз, состояние в ModelState.
+    Обучение: forward_sequence(B, T, D) — один проход по всей последовательности.
     """
 
-    def __init__(
-        self,
-        activation=nn.GELU()
-    ):
+    def __init__(self, activation=None):
         super().__init__()
+        if activation is None:
+            activation = nn.GELU()
 
         linear1_dim = current_constants.get("linear1_dim")
-        hidden_dim1 = current_constants.get("conv1_dim")
-        hidden_dim2 = current_constants.get("conv2_dim")
-        hidden_dim3 = current_constants.get("conv3_dim")
-        kernel1 = current_constants.get("conv1_window")
-        kernel2 = current_constants.get("conv2_window")
-        kernel3 = current_constants.get("conv3_window")
+        conv_dim = current_constants.get("conv_dim")
+        kernel = current_constants.get("conv_window")
 
-        self.conv1 = nn.Conv1d(linear1_dim, hidden_dim1, kernel1, bias=True)
-        self.conv2 = nn.Conv1d(hidden_dim1, hidden_dim2, kernel2, bias=True)
-        self.conv3 = nn.Conv1d(hidden_dim2, hidden_dim3, kernel3, bias=True)
-
+        self.conv = nn.Conv1d(linear1_dim, conv_dim, kernel, bias=True)
         self.activation = activation
+        self.kernel = kernel
+        self.state = ModelState(kernel, linear1_dim, DEVICE)
 
-        self.kernel1 = kernel1
-        self.kernel2 = kernel2
-        self.kernel3 = kernel3
-
-        self.state = ModelState(kernel1, kernel2, kernel3, hidden_dim1, hidden_dim2, hidden_dim3, DEVICE)
-
-    def _forward_conv(self, conv, seq, kernel_size):
-        """
-        seq: (T, D)
-        Делает causal свёртку с zero-padding слева при необходимости.
-        Возвращает последний timestep.
-        """
-
+    def _forward_conv_step(self, seq: torch.Tensor) -> torch.Tensor:
+        """seq: (T, D). Causal свёртка, возвращает один вектор (conv_dim,)."""
         T, D = seq.shape
-
+        kernel_size = self.kernel
         if T < kernel_size:
             pad_len = kernel_size - T
             pad = torch.zeros(pad_len, D, device=seq.device, dtype=seq.dtype)
             seq = torch.cat([pad, seq], dim=0)
         else:
             seq = seq[-kernel_size:]
+        x = seq.transpose(0, 1).unsqueeze(0)  # (1, D, K)
+        out = self.conv(x)
+        return out.squeeze(0).squeeze(-1)  # (conv_dim,)
 
-        # (K, D) -> (1, D, K)
-        x = seq.transpose(0, 1).unsqueeze(0)
-
-        # Conv1d без встроенного padding
-        out = conv(x)
-
-        # (1, C, 1) -> (C,)
-        return out.squeeze(0).squeeze(-1)
-
-    def forward(self, x_t: torch.Tensor):
+    def forward(self, x_t: torch.Tensor) -> torch.Tensor:
         """
-        x_t: (input_dim,)
-        state: ModelState
-
-        Возвращает: (hidden_dim3,)
+        Один шаг (streaming). x_t: (linear1_dim,).
+        Обновляет state, возвращает (conv_dim,).
         """
-
-        # ---- Conv1 ----
-        self.state.add_conv1(x_t)
-        seq1 = self.state.get_conv1_sequence()
-        y1 = self._forward_conv(self.conv1, seq1, self.kernel1)
-        y1 = self.activation(y1)
-
-        # ---- Conv2 ----
-        self.state.add_conv2(y1)
-        seq2 = self.state.get_conv2_sequence()
-        y2 = self._forward_conv(self.conv2, seq2, self.kernel2)
-        y2 = self.activation(y2)
-
-        # ---- Conv3 ----
-        self.state.add_conv3(y2)
-        seq3 = self.state.get_conv3_sequence()
-        y3 = self._forward_conv(self.conv3, seq3, self.kernel3)
-        y3 = self.activation(y3)
-
-        return y3
+        self.state.add_conv(x_t)
+        seq = self.state.get_conv_sequence()
+        y = self._forward_conv_step(seq)
+        return self.activation(y)
 
     def forward_sequence(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Один проход по всей последовательности (для обучения).
         x: (T, C) или (B, T, C), C = linear1_dim.
-        Возвращает: (T, conv3_dim) или (B, T, conv3_dim).
-        Causal padding — те же веса, что и в streaming forward.
+        Возвращает (T, conv_dim) или (B, T, conv_dim). Causal padding.
         """
         squeeze = False
         if x.dim() == 2:
             squeeze = True
-            x = x.unsqueeze(0)  # (1, T, C)
-        # x: (B, T, C) -> (B, C, T)
+            x = x.unsqueeze(0)
         x = x.transpose(1, 2)
-        x = F.pad(x, (self.kernel1 - 1, 0), mode="constant", value=0)
-        x = self.conv1(x)
+        x = F.pad(x, (self.kernel - 1, 0), mode="constant", value=0)
+        x = self.conv(x)
         x = self.activation(x)
-        x = F.pad(x, (self.kernel2 - 1, 0), mode="constant", value=0)
-        x = self.conv2(x)
-        x = self.activation(x)
-        x = F.pad(x, (self.kernel3 - 1, 0), mode="constant", value=0)
-        x = self.conv3(x)
-        x = self.activation(x)
-        # (B, conv3_dim, T) -> (B, T, conv3_dim)
         x = x.transpose(1, 2)
         if squeeze:
             x = x.squeeze(0)
         return x
+
+    def reset_state(self):
+        self.state.reset()
