@@ -49,10 +49,9 @@ WEIGHTS_DIR = os.path.join(CURRENT_DIR, "weights")
 # пути к данным и параметры обучения (вместо аргументов командной строки)
 TRAIN_PATH = os.path.join(CURRENT_DIR, "..", "datasets", "train.parquet")
 VAL_PATH = os.path.join(CURRENT_DIR, "..", "datasets", "valid.parquet")
-VAL_FROM_TRAIN_BATCHES = 50  # первых N батчей train как val, если VAL_PATH недоступен; 0 = без val
 # Батч обучения — сколько последовательностей за один forward
 SEQUENCE_BATCH_SIZE = 16
-EPOCHS = 50
+EPOCHS = 20
 LR = 1e-3
 SAVE_NAME = "model.pt"
 
@@ -170,9 +169,18 @@ def validate(model, loader, criterion, device, max_batches=None, epoch=None, tot
     return avg_loss, val_pearson
 
 
-def main():
+def run_training_loop(save_path=None, epochs=None):
+    """
+    Запускает полный цикл обучения. Возвращает лучший val weighted_pearson (среднее по t0/t1).
+    save_path: куда сохранять лучшие веса; None — не сохранять.
+    epochs: число эпох; None — использовать EPOCHS из модуля.
+    """
+    if save_path is None:
+        save_path = os.path.join(WEIGHTS_DIR, SAVE_NAME)
+    if epochs is None:
+        epochs = EPOCHS
+
     os.makedirs(WEIGHTS_DIR, exist_ok=True)
-    save_path = os.path.join(WEIGHTS_DIR, SAVE_NAME)
 
     log.info("Device: %s", DEVICE)
     model = FullModel().to(DEVICE)
@@ -181,7 +189,7 @@ def main():
 
     if not os.path.isfile(TRAIN_PATH):
         log.error("Train file not found: %s", TRAIN_PATH)
-        sys.exit(1)
+        return -float("inf")
 
     train_ds = ParquetSequenceDataset(
         TRAIN_PATH,
@@ -214,27 +222,12 @@ def main():
         )
         total_val_batches = len(val_loader)
         log.info("Validation from %s", VAL_PATH)
-    elif VAL_FROM_TRAIN_BATCHES > 0:
-        val_ds = ParquetSequenceDataset(
-            TRAIN_PATH,
-            feature_columns=FEATURE_COLUMNS,
-            target_columns=TARGET_COLUMNS,
-        )
-        val_loader = DataLoader(
-            val_ds,
-            batch_size=SEQUENCE_BATCH_SIZE,
-            shuffle=False,
-            num_workers=0,
-        )
-        val_max_batches = VAL_FROM_TRAIN_BATCHES
-        total_val_batches = val_max_batches
-        log.info("Validation from first %s batches of train (val file not found or disabled)", VAL_FROM_TRAIN_BATCHES)
 
     best_val_pearson = -float("inf")
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(1, epochs + 1):
         train_loss = train_epoch(
             model, train_loader, optimizer, criterion, DEVICE,
-            epoch=epoch, total_epochs=EPOCHS,
+            epoch=epoch, total_epochs=epochs,
             total_batches=total_train_batches,
         )
         log.info("Epoch %d train loss: %.6f", epoch, train_loss)
@@ -243,20 +236,28 @@ def main():
             val_loss, val_pearson = validate(
                 model, val_loader, criterion, DEVICE,
                 max_batches=val_max_batches,
-                epoch=epoch, total_epochs=EPOCHS,
+                epoch=epoch, total_epochs=epochs,
                 total_val_batches=total_val_batches,
             )
             log.info("Epoch %d val loss: %.6f val weighted_pearson: %.6f", epoch, val_loss, val_pearson)
             if val_pearson > best_val_pearson:
                 best_val_pearson = val_pearson
-                torch.save(model.state_dict(), save_path)
-                log.info("Saved best weights to %s", save_path)
+                if save_path is not None:
+                    torch.save(model.state_dict(), save_path)
+                    log.info("Saved best weights to %s", save_path)
 
     if val_loader is None:
-        torch.save(model.state_dict(), save_path)
-        log.info("Saved weights to %s", save_path)
+        if save_path is not None:
+            torch.save(model.state_dict(), save_path)
+            log.info("Saved weights to %s", save_path)
 
     log.info("Done.")
+    return best_val_pearson if val_loader is not None else -float("inf")
+
+
+def main():
+    save_path = os.path.join(WEIGHTS_DIR, SAVE_NAME)
+    run_training_loop(save_path=save_path, epochs=EPOCHS)
 
 
 if __name__ == "__main__":

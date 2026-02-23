@@ -14,9 +14,11 @@ build/
 venv/
 env/
 
-# Model weights
+# Model weights (исключение: веса в inference коммитим)
 **/weights/
 *.pt
+!**/inference/weights/
+!**/inference/weights/*.pt
 
 # VS Code
 .vscode/
