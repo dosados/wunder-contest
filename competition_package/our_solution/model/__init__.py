@@ -4,5 +4,6 @@ Hybrid Conv + Transformer модель для предсказания сост�
 """
 
 from .full_model import FullModel
+from .gru_model import GRUModel
 
-__all__ = ["FullModel"]
+__all__ = ["FullModel", "GRUModel"]

@@ -1,0 +1,10 @@
+{
+  "best_val_pearson": 0.27177687734365463,
+  "best_hyperparameters": {
+    "input_dim": 32,
+    "linear_dim": 64,
+    "gru_hidden": 256,
+    "gru_num_layers": 3,
+    "output_dim": 2
+  }
+}
