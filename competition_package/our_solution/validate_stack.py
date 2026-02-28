@@ -20,25 +20,22 @@ for path in (ROOT, PKG):
 
 from utils import weighted_pearson_correlation
 from dataset import ParquetSequenceDataset
-
-# Константы как в stack_trainer (warmup, колонки, batch size)
-FEATURE_COLUMNS = (
-    [f"p{i}" for i in range(12)]
-    + [f"v{i}" for i in range(12)]
-    + [f"dp{i}" for i in range(4)]
-    + [f"dv{i}" for i in range(4)]
+from constants import (
+    FEATURE_COLUMNS,
+    TARGET_COLUMNS,
+    WARMUP_STEPS,
+    SEQUENCE_BATCH_SIZE,
+    STACK_CONFIG_PATH,
+    DEFAULT_STACK_WEIGHTS_PATH,
+    DEFAULT_META_HIDDEN_DIMS,
+    INFERENCE_CONFIG_PATH,
+    INFERENCE_WEIGHTS_PATH,
+    INFERENCE_GRU_CONFIG_PATH,
+    INFERENCE_GRU_WEIGHTS_PATH,
 )
-TARGET_COLUMNS = ["t0", "t1"]
-WARMUP_STEPS = 99
-SEQUENCE_BATCH_SIZE = 16
-
-STACK_DIR = os.path.join(ROOT, "stack")
-STACK_CONFIG_PATH = os.path.join(STACK_DIR, "best_hyperparameters_stack.json")
-DEFAULT_STACK_WEIGHTS_PATH = os.path.join(STACK_DIR, "weights_stack", "best_stack.pt")
-DEFAULT_META_HIDDEN_DIMS = [64]
 
 
-def _get_meta_hidden_dims(stack_config_path: str) -> list:
+def _get_meta_hidden_dims(stack_config_path: str = STACK_CONFIG_PATH) -> list:
     if os.path.isfile(stack_config_path):
         with open(stack_config_path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -55,29 +52,23 @@ def load_stack_model(weights_path: str, device: str):
     from stack import StackModel
 
     # FullModel
-    inference_dir = os.path.join(ROOT, "inference")
-    config_path = os.path.join(inference_dir, "config.json")
-    full_weights = os.path.join(inference_dir, "weights", "best_model.pt")
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(INFERENCE_CONFIG_PATH, "r", encoding="utf-8") as f:
         data = json.load(f)
     config = data.get("best_hyperparameters", data) if isinstance(data, dict) else data
     constants.convo_constants.clear()
     constants.convo_constants.update(config)
     full_model = FullModel()
-    full_model.load_state_dict(torch.load(full_weights, map_location="cpu"), strict=True)
+    full_model.load_state_dict(torch.load(INFERENCE_WEIGHTS_PATH, map_location="cpu"), strict=True)
 
     # GRUModel
-    gru_dir = os.path.join(ROOT, "inference_gru")
-    gru_config = os.path.join(gru_dir, "config.json")
-    gru_weights = os.path.join(gru_dir, "weights", "best_model.pt")
-    if os.path.isfile(gru_config):
-        with open(gru_config, "r", encoding="utf-8") as f:
+    if os.path.isfile(INFERENCE_GRU_CONFIG_PATH):
+        with open(INFERENCE_GRU_CONFIG_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
         config = data.get("best_hyperparameters", data) if isinstance(data, dict) else data
         constants.gru_constants.clear()
         constants.gru_constants.update(config)
     gru_model = GRUModel()
-    gru_model.load_state_dict(torch.load(gru_weights, map_location="cpu"), strict=True)
+    gru_model.load_state_dict(torch.load(INFERENCE_GRU_WEIGHTS_PATH, map_location="cpu"), strict=True)
 
     meta_hidden_dims = _get_meta_hidden_dims(STACK_CONFIG_PATH)
     stack_model = StackModel(

@@ -11,19 +11,14 @@ from typing import Optional
 import numpy as np
 import torch
 
-# Корень решения и пакет с utils
 ROOT = os.path.dirname(os.path.abspath(__file__))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 PKG = os.path.dirname(ROOT)
-for path in (ROOT, PKG):
-    if path not in sys.path:
-        sys.path.insert(0, path)
-
+if PKG not in sys.path:
+    sys.path.insert(0, PKG)
+from constants import INFERENCE_CONFIG_PATH, INFERENCE_WEIGHTS_PATH, PRED_CLIP_LOW, PRED_CLIP_HIGH
 from utils import DataPoint
-
-# Пути к конфигу и весам (inference/)
-CONFIG_PATH = os.path.join(ROOT, "inference", "config.json")
-WEIGHTS_PATH = os.path.join(ROOT, "inference", "weights", "best_model.pt")
-PRED_CLIP_LOW, PRED_CLIP_HIGH = -6.0, 6.0
 
 
 def _apply_config(config: dict) -> None:
@@ -32,7 +27,7 @@ def _apply_config(config: dict) -> None:
     constants.convo_constants.update(config)
 
 
-def _load_full_model(config_path: str, weights_path: str):
+def _load_full_model(config_path: str = INFERENCE_CONFIG_PATH, weights_path: str = INFERENCE_WEIGHTS_PATH):
     with open(config_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     config = data.get("best_hyperparameters", data) if isinstance(data, dict) else data
@@ -53,7 +48,7 @@ class PredictionModel:
     """
 
     def __init__(self):
-        self._full_model = _load_full_model(CONFIG_PATH, WEIGHTS_PATH)
+        self._full_model = _load_full_model()
 
     @property
     def full_model(self):

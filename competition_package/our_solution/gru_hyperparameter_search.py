@@ -15,7 +15,8 @@ if CURRENT_DIR not in sys.path:
     sys.path.insert(0, CURRENT_DIR)
 
 import constants
-from gru_trainer import run_training_loop, WEIGHTS_DIR, SAVE_NAME
+from constants import BEST_PARAMS_PATH_GRU as BEST_PARAMS_PATH, WEIGHTS_GRU_DIR
+from gru_trainer import run_training_loop, SAVE_NAME
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,7 +24,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-BEST_PARAMS_PATH = os.path.join(CURRENT_DIR, "best_hyperparameters_gru.json")
+WEIGHTS_DIR = WEIGHTS_GRU_DIR
 BEST_WEIGHTS_NAME = "gru_best_search.pt"
 
 

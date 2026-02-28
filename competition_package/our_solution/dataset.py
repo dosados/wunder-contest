@@ -3,8 +3,7 @@ import pyarrow.parquet as pq
 import torch
 from torch.utils.data import Dataset, IterableDataset
 
-MIN_BATCH_MULTIPLE = 1000
-SEQ_LEN = 1000
+from constants import MIN_BATCH_MULTIPLE, SEQ_LEN
 
 
 def _check_batch_size(batch_size: int) -> None:

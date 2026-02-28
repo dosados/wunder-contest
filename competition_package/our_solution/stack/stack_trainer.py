@@ -22,7 +22,31 @@ if PKG not in sys.path:
 from utils import weighted_pearson_correlation
 from dataset import ParquetSequenceDataset
 
-from constants import DEVICE, convo_constants, gru_constants
+from constants import (
+    DEVICE,
+    convo_constants,
+    gru_constants,
+    FEATURE_COLUMNS,
+    TARGET_COLUMNS,
+    WARMUP_STEPS,
+    SEQUENCE_BATCH_SIZE,
+    TRAIN_PATH,
+    VAL_PATH,
+    WEIGHTS_STACK_DIR,
+    SAVE_NAME_STACK as SAVE_NAME,
+    EPOCHS_STACK as EPOCHS,
+    LR_STACK as LR,
+    PRED_CLIP_LOW,
+    PRED_CLIP_HIGH,
+    WEIGHT_EPS,
+    VAR_EPS,
+    TRAIN_VAL_FRACTION,
+    INFERENCE_CONFIG_PATH as FULL_MODEL_CONFIG_PATH,
+    INFERENCE_WEIGHTS_PATH as FULL_MODEL_WEIGHTS_PATH,
+    INFERENCE_GRU_CONFIG_PATH as GRU_CONFIG_PATH,
+    INFERENCE_GRU_WEIGHTS_PATH as GRU_WEIGHTS_PATH,
+    DEFAULT_META_HIDDEN_DIMS,
+)
 from stack.stack_model import StackModel
 
 logging.basicConfig(
@@ -30,39 +54,6 @@ logging.basicConfig(
     format="[%(levelname)s] %(message)s",
 )
 log = logging.getLogger(__name__)
-
-# Пути к весам базовых моделей (относительно our_solution)
-INFERENCE_DIR = os.path.join(ROOT, "inference")
-FULL_MODEL_CONFIG_PATH = os.path.join(INFERENCE_DIR, "config.json")
-FULL_MODEL_WEIGHTS_PATH = os.path.join(INFERENCE_DIR, "weights", "best_model.pt")
-INFERENCE_GRU_DIR = os.path.join(ROOT, "inference_gru")
-GRU_CONFIG_PATH = os.path.join(INFERENCE_GRU_DIR, "config.json")
-GRU_WEIGHTS_PATH = os.path.join(INFERENCE_GRU_DIR, "weights", "best_model.pt")
-
-VAL_PATH = os.path.join(ROOT, "..", "datasets", "valid.parquet")
-TRAIN_PATH = os.path.join(ROOT, "..", "datasets", "train.parquet")
-WEIGHTS_STACK_DIR = os.path.join(CURRENT_DIR, "weights_stack")
-SAVE_NAME = "best_stack.pt"
-
-FEATURE_COLUMNS = (
-    [f"p{i}" for i in range(12)]
-    + [f"v{i}" for i in range(12)]
-    + [f"dp{i}" for i in range(4)]
-    + [f"dv{i}" for i in range(4)]
-)
-TARGET_COLUMNS = ["t0", "t1"]
-WARMUP_STEPS = 99
-SEQUENCE_BATCH_SIZE = 16
-EPOCHS = 20
-LR = 1e-3
-
-PRED_CLIP_LOW = -6.0
-PRED_CLIP_HIGH = 6.0
-WEIGHT_EPS = 1e-8
-VAR_EPS = 1e-8
-
-# Доля train.parquet для валидации (выбор лучшей эпохи); остальное не используется
-TRAIN_VAL_FRACTION = 0.1
 
 
 def _apply_convo_config(config: dict) -> None:
@@ -195,7 +186,7 @@ def validate(model, loader, criterion, device, max_batches=None, epoch=None, tot
 
 
 def run_training_loop(
-    meta_hidden_dims=None,
+    meta_hidden_dims=None,  # None -> DEFAULT_META_HIDDEN_DIMS from constants
     save_path=None,
     epochs=None,
 ):

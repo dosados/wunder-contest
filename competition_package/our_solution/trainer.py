@@ -20,7 +20,23 @@ if PKG_DIR not in sys.path:
     sys.path.insert(0, PKG_DIR)
 from utils import weighted_pearson_correlation
 
-from constants import DEVICE
+from constants import (
+    DEVICE,
+    FEATURE_COLUMNS,
+    TARGET_COLUMNS,
+    WARMUP_STEPS,
+    WEIGHTS_DIR,
+    TRAIN_PATH,
+    VAL_PATH,
+    SEQUENCE_BATCH_SIZE,
+    EPOCHS,
+    LR,
+    SAVE_NAME,
+    PRED_CLIP_LOW,
+    PRED_CLIP_HIGH,
+    WEIGHT_EPS,
+    VAR_EPS,
+)
 from model import FullModel
 from dataset import ParquetSequenceDataset
 
@@ -29,37 +45,6 @@ logging.basicConfig(
     format="[%(levelname)s] %(message)s",
 )
 log = logging.getLogger(__name__)
-
-# колонки для последовательностей
-FEATURE_COLUMNS = (
-    [f"p{i}" for i in range(12)]
-    + [f"v{i}" for i in range(12)]
-    + [f"dp{i}" for i in range(4)]
-    + [f"dv{i}" for i in range(4)]
-)
-TARGET_COLUMNS = ["t0", "t1"]
-INPUT_DIM = len(FEATURE_COLUMNS)
-TARGET_DIM = len(TARGET_COLUMNS)
-# шаги 0..98 — warm-up (README), лосс считаем только с шага 99
-WARMUP_STEPS = 99
-
-# папка для сохранения весов
-WEIGHTS_DIR = os.path.join(CURRENT_DIR, "weights")
-
-# пути к данным и параметры обучения (вместо аргументов командной строки)
-TRAIN_PATH = os.path.join(CURRENT_DIR, "..", "datasets", "train.parquet")
-VAL_PATH = os.path.join(CURRENT_DIR, "..", "datasets", "valid.parquet")
-# Батч обучения — сколько последовательностей за один forward
-SEQUENCE_BATCH_SIZE = 16
-EPOCHS = 20
-LR = 1e-3
-SAVE_NAME = "model.pt"
-
-# Диапазон клипа предсказаний (как в utils.weighted_pearson_correlation)
-PRED_CLIP_LOW = -6.0
-PRED_CLIP_HIGH = 6.0
-WEIGHT_EPS = 1e-8
-VAR_EPS = 1e-8
 
 
 def _weighted_pearson_1d(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
