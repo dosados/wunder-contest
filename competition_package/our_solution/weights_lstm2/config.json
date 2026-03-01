@@ -1,0 +1,9 @@
+{
+  "lstm2_constants": {
+    "input_dim": 32,
+    "linear_dim": 64,
+    "lstm_hidden": 256,
+    "lstm_num_layers": 3,
+    "output_dim": 2
+  }
+}

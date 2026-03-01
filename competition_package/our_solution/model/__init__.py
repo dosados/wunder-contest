@@ -4,6 +4,10 @@ Hybrid Conv + Transformer модель для предсказания сост�
 """
 
 from .full_model import FullModel
-from .gru_model import GRUModel
+
+try:
+    from .gru_model import GRUModel
+except ModuleNotFoundError:
+    GRUModel = None
 
 __all__ = ["FullModel", "GRUModel"]

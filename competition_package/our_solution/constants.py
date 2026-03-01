@@ -50,6 +50,9 @@ INFERENCE_DIR = os.path.join(ROOT, "inference")
 INFERENCE_CONFIG_PATH = os.path.join(INFERENCE_DIR, "config.json")
 INFERENCE_WEIGHTS_PATH = os.path.join(INFERENCE_DIR, "weights", "best_model.pt")
 
+# --- Стек LSTM + SSM: одна и та же LSTM для build_residual_dataset и val.py ---
+LSTM_RUN_DIR = os.path.join(ROOT, "inference", "weights", "run_280226_235333")
+
 # --- Метрика Pearson ---
 PRED_CLIP_LOW = -6.0
 PRED_CLIP_HIGH = 6.0
@@ -88,6 +91,39 @@ DEFAULT_META_HIDDEN_DIMS = [64]
 EPOCHS_STACK = 20
 LR_STACK = 1e-3
 TRAIN_VAL_FRACTION = 0.1
+
+# --- Вторая LSTM (на остатках первой LSTM, аналог SSM в стеке) ---
+lstm2_constants = {
+    "input_dim": INPUT_DIM,
+    "linear_dim": 64,
+    "lstm_hidden": 256,
+    "lstm_num_layers": 3,
+    "output_dim": TARGET_DIM,
+}
+WEIGHTS_LSTM2_DIR = os.path.join(ROOT, "weights_lstm2")
+SAVE_NAME_LSTM2 = "lstm2_model.pt"
+EPOCHS_LSTM2 = 20
+LR_LSTM2 = 1e-3
+
+# --- SSM (Mamba-style) ---
+ssm_constants = {
+    "input_dim": INPUT_DIM,
+    "d_model": 32,
+    "n_layers": 2,
+    "d_state": 12,
+    "d_conv": 2,
+    "expand": 1,
+    "dt_rank": None,
+    "output_dim": TARGET_DIM,
+}
+WEIGHTS_SSM_DIR = os.path.join(ROOT, "weights_ssm")
+SAVE_NAME_SSM = "ssm_model.pt"
+EPOCHS_SSM = 20
+LR_SSM = 1e-3
+# Parquet с остатками для обучения/валидации SSM (build_residual_dataset.py)
+TRAIN_RESIDUAL_PATH = os.path.join(PKG_DIR, "datasets", "train_residual.parquet")
+VALID_RESIDUAL_PATH = os.path.join(PKG_DIR, "datasets", "valid_residual.parquet")
+RESIDUAL_METADATA_PATH = os.path.join(PKG_DIR, "datasets", "residual_metadata.json")
 
 # --- Устройство ---
 from torch.cuda import is_available

@@ -2,10 +2,10 @@
   "best_hyperparameters": {
     "input_dim": 32,
     "linear1_dim": 64,
-    "conv_window": 2,
+    "conv_window": 3,
     "conv_dim": 64,
     "lstm_hidden": 320,
-    "lstm_num_layers": 3,
+    "lstm_num_layers": 1,
     "output_dim": 2
   },
   "best_val_pearson": 0.27803750336170197

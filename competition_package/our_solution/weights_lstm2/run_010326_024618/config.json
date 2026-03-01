@@ -1,0 +1,11 @@
+{
+  "lstm2_constants": {
+    "input_dim": 32,
+    "linear_dim": 64,
+    "lstm_hidden": 128,
+    "lstm_num_layers": 2,
+    "output_dim": 2
+  },
+  "train_data": "train_residual.parquet",
+  "valid_data": "valid_residual.parquet"
+}

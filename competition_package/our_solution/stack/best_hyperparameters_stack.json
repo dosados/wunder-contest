@@ -1,8 +1,0 @@
-{
-  "best_val_pearson": 0.3322366029024124,
-  "best_hyperparameters": {
-    "meta_hidden_dims": [
-      64
-    ]
-  }
-}
