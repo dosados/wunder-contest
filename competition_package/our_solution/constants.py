@@ -92,6 +92,12 @@ EPOCHS_STACK = 20
 LR_STACK = 1e-3
 TRAIN_VAL_FRACTION = 0.1
 
+# --- Unified orchestration modes ---
+ORCHESTRATION_VARIANTS = ("lstm_gru", "lstm_ssm")
+DEFAULT_ORCHESTRATION_VARIANT = "lstm_ssm"
+STACK_LSTM_GRU_META_PATH = os.path.join(STACK_DIR, "lstm_gru", "meta_head_oof.pt")
+STACK_LSTM_SSM_META_PATH = os.path.join(STACK_DIR, "lstm_ssm", "meta_head_oof.pt")
+
 # --- Вторая LSTM (на остатках первой LSTM, аналог SSM в стеке) ---
 lstm2_constants = {
     "input_dim": INPUT_DIM,
