@@ -1,0 +1,9 @@
+{
+  "folds": 5,
+  "seed": 42,
+  "models": [
+    {"name": "conv_lstm", "weights_path": "artifacts/train_conv_lstm/latest/weights/best_model.pt"},
+    {"name": "gru", "weights_path": "artifacts/train_gru/latest/weights/best_model.pt"},
+    {"name": "ssm", "weights_path": "artifacts/train_ssm/latest/weights/best_model.pt"}
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "best_epoch": 4,
+  "best_metric": 0.26070280478255603,
+  "weights_path": "/home/mants/Documents/own/wunder-contest/artifacts/train_gru/20260409_160244/weights/best_model.pt",
+  "process": "train_gru"
+}

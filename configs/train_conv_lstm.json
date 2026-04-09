@@ -1,0 +1,8 @@
+{
+  "model": {"name": "conv_lstm", "params": {}},
+  "epochs": 20,
+  "lr": 0.001,
+  "batch_size": 16,
+  "warmup_steps": 99,
+  "loss": "mse"
+}

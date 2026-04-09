@@ -1,0 +1,139 @@
+from __future__ import annotations
+from pathlib import Path
+from typing import Any
+import joblib
+import numpy as np
+import pyarrow.parquet as pq
+import torch
+import torch.nn as nn
+from sklearn.linear_model import Ridge
+from torch.utils.data import DataLoader, TensorDataset
+from tqdm.auto import tqdm
+from metrics import contest_metric, mae, mse
+from utils import get_logger
+
+
+def _read_oof(path: str, selected_models: list[str] | None = None):
+    tbl = pq.read_table(path)
+    cols = tbl.column_names
+    x_cols = [c for c in cols if c.endswith("_pred_t0") or c.endswith("_pred_t1")]
+    if selected_models:
+        allowed = set(selected_models)
+        x_cols = [c for c in x_cols if c.rsplit("_pred_", 1)[0] in allowed]
+        if not x_cols:
+            raise ValueError("selected_models produced empty feature set")
+    X = np.column_stack([tbl[c].to_numpy() for c in x_cols]).astype(np.float32)
+    y = np.column_stack(
+        [tbl["target_t0"].to_numpy(), tbl["target_t1"].to_numpy()]
+    ).astype(np.float32)
+    return (X, y)
+
+
+class MLPStack(nn.Module):
+
+    def __init__(self, in_dim: int, hidden_layers: list[int]):
+        super().__init__()
+        layers = []
+        prev = in_dim
+        for h in hidden_layers:
+            layers.extend([nn.Linear(prev, h), nn.ReLU(inplace=True)])
+            prev = h
+        layers.append(nn.Linear(prev, 2))
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.net(x)
+
+
+def train_stack(config: dict[str, Any], run_dir: str | Path) -> dict[str, Any]:
+    logger = get_logger("stack_trainer")
+    X, y = _read_oof(config["oof_path"], config.get("selected_models"))
+    mode = config.get("mode", "mlp")
+    out_weights = Path(run_dir) / "weights"
+    out_weights.mkdir(parents=True, exist_ok=True)
+    history = {
+        "train": {"contest_metric": [], "mse": [], "mae": []},
+        "val": {"contest_metric": [], "mse": [], "mae": []},
+    }
+    if mode == "ridge":
+        alpha = float(config.get("ridge_alpha", 1.0))
+        model = Ridge(alpha=alpha, random_state=int(config.get("seed", 42)))
+        model.fit(X, y)
+        pred = model.predict(X)
+        history["train"]["contest_metric"].append(contest_metric(y, pred))
+        history["train"]["mse"].append(mse(y, pred))
+        history["train"]["mae"].append(mae(y, pred))
+        joblib.dump(model, out_weights / "ridge.joblib")
+        return {
+            "mode": "ridge",
+            "history": history,
+            "weights_path": str(out_weights / "ridge.joblib"),
+        }
+    device = config.get("device", "cpu")
+    split = float(config.get("val_split", 0.2))
+    n = len(X)
+    n_val = max(1, int(n * split))
+    X_train, X_val = (X[:-n_val], X[-n_val:])
+    y_train, y_val = (y[:-n_val], y[-n_val:])
+    model = MLPStack(X.shape[1], config.get("hidden_layers", [64]))
+    model = model.to(device)
+    opt = torch.optim.Adam(model.parameters(), lr=float(config.get("lr", 0.001)))
+    loss_fn = nn.MSELoss()
+    train_loader = DataLoader(
+        TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train)),
+        batch_size=int(config.get("batch_size", 1024)),
+        shuffle=True,
+    )
+    val_loader = DataLoader(
+        TensorDataset(torch.from_numpy(X_val), torch.from_numpy(y_val)),
+        batch_size=int(config.get("batch_size", 1024)),
+        shuffle=False,
+    )
+    epochs = int(config.get("epochs", 20))
+    best_metric = -1e18
+    best_path = out_weights / "stack_mlp.pt"
+    for ep in range(1, epochs + 1):
+        model.train()
+        p_train, t_train = ([], [])
+        for xb, yb in tqdm(
+            train_loader, desc=f"Stack train {ep}/{epochs}", leave=False
+        ):
+            xb, yb = (xb.to(device), yb.to(device))
+            pred = model(xb)
+            loss = loss_fn(pred, yb)
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            p_train.append(pred.detach().cpu().numpy())
+            t_train.append(yb.detach().cpu().numpy())
+        tr_p = np.concatenate(p_train, axis=0)
+        tr_t = np.concatenate(t_train, axis=0)
+        history["train"]["contest_metric"].append(contest_metric(tr_t, tr_p))
+        history["train"]["mse"].append(mse(tr_t, tr_p))
+        history["train"]["mae"].append(mae(tr_t, tr_p))
+        model.eval()
+        p_val, t_val = ([], [])
+        with torch.no_grad():
+            for xb, yb in tqdm(
+                val_loader, desc=f"Stack val {ep}/{epochs}", leave=False
+            ):
+                pred = model(xb.to(device)).cpu().numpy()
+                p_val.append(pred)
+                t_val.append(yb.numpy())
+        va_p = np.concatenate(p_val, axis=0)
+        va_t = np.concatenate(t_val, axis=0)
+        v_metric = contest_metric(va_t, va_p)
+        history["val"]["contest_metric"].append(v_metric)
+        history["val"]["mse"].append(mse(va_t, va_p))
+        history["val"]["mae"].append(mae(va_t, va_p))
+        logger.info(
+            "Epoch %d stack val: contest=%.6f mse=%.6f mae=%.6f",
+            ep,
+            history["val"]["contest_metric"][-1],
+            history["val"]["mse"][-1],
+            history["val"]["mae"][-1],
+        )
+        if v_metric > best_metric:
+            best_metric = v_metric
+            torch.save(model.state_dict(), best_path)
+    return {"mode": "mlp", "history": history, "weights_path": str(best_path)}

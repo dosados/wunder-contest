@@ -20,5 +20,8 @@ env/
 !**/inference/weights/
 !**/inference/weights/*.pt
 
+# Dataset files (competition data; не коммитим — кладите локально в datasets/, см. README)
+datasets/*.parquet
+
 # VS Code
 .vscode/

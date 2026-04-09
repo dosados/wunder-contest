@@ -1,0 +1,11 @@
+{
+  "mode": "ridge",
+  "oof_path": "artifacts/build_oof/latest/oof/oof_stack_train.parquet",
+  "ridge_alpha": 1.0,
+  "seed": 42,
+  "selected_models": [
+    "conv_lstm",
+    "gru",
+    "ssm"
+  ]
+}

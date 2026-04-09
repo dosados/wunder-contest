@@ -1,0 +1,18 @@
+{
+  "mode": "mlp",
+  "oof_path": "artifacts/build_oof/latest/oof/oof_stack_train.parquet",
+  "hidden_layers": [
+    64,
+    32
+  ],
+  "epochs": 30,
+  "lr": 0.001,
+  "batch_size": 2048,
+  "val_split": 0.2,
+  "device": "cpu",
+  "selected_models": [
+    "conv_lstm",
+    "gru",
+    "ssm"
+  ]
+}
