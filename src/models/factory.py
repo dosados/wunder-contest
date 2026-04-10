@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Any
-from models import FullModel, GRUModel, SSMModel
+from models import FullModel, GRUModel, SSMModel, WindowTransformerModel
 
 
 def create_model(model_name: str, model_config: dict[str, Any] | None = None):
@@ -11,4 +11,6 @@ def create_model(model_name: str, model_config: dict[str, Any] | None = None):
         return GRUModel()
     if model_name == "ssm":
         return SSMModel(config=model_config)
+    if model_name in ("transformer", "window_transformer"):
+        return WindowTransformerModel(config=model_config)
     raise ValueError(f"Unknown model: {model_name}")

@@ -71,6 +71,20 @@ ssm_constants = {
     "dt_rank": None,
     "output_dim": TARGET_DIM,
 }
+transformer_constants = {
+    "input_dim": INPUT_DIM,
+    "d_model": 64,
+    "context_window": 64,
+    "n_heads": 4,
+    "n_layers": 2,
+    "dim_feedforward": 256,
+    "dropout": 0.0,
+    "output_dim": TARGET_DIM,
+}
+WEIGHTS_TRANSFORMER_DIR = os.path.join(ARTIFACTS_ROOT, "weights_transformer")
+SAVE_NAME_TRANSFORMER = "transformer_model.pt"
+EPOCHS_TRANSFORMER = 20
+LR_TRANSFORMER = 0.001
 WEIGHTS_SSM_DIR = os.path.join(ARTIFACTS_ROOT, "weights_ssm")
 SAVE_NAME_SSM = "ssm_model.pt"
 TRAIN_RESIDUAL_PATH = os.path.join(DATASETS_DIR, "train_residual.parquet")

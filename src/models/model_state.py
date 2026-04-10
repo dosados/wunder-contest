@@ -26,6 +26,9 @@ class _RingBuffer:
         self.full = False
 
 
+RingBuffer = _RingBuffer
+
+
 class ModelState:
 
     def __init__(self, conv_window, conv_feat_dim, device="cpu"):
