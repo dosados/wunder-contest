@@ -2,17 +2,23 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from constants import DEVICE, convo_constants
+from models.configurable_blocks import get_activation
 from models.model_state import ModelState
 
 
 class StreamingTemporalConvModel(nn.Module):
 
-    def __init__(self, activation=None):
+    def __init__(self, cfg: dict | None = None, activation: nn.Module | None = None):
         super().__init__()
-        self.activation = activation or nn.GELU()
-        linear1_dim = convo_constants.get("linear1_dim")
-        conv_dim = convo_constants.get("conv_dim")
-        self.kernel = convo_constants.get("conv_window")
+        cfg = dict(convo_constants) if cfg is None else {**convo_constants, **cfg}
+        self._cfg = cfg
+        if activation is not None:
+            self.activation = activation
+        else:
+            self.activation = get_activation(cfg.get("conv_activation", "gelu"))
+        linear1_dim = cfg["linear1_dim"]
+        conv_dim = cfg["conv_dim"]
+        self.kernel = cfg["conv_window"]
         self.conv = nn.Conv1d(linear1_dim, conv_dim, self.kernel, bias=True)
         self.state = ModelState(self.kernel, linear1_dim, DEVICE)
 

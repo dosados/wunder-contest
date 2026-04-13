@@ -3,6 +3,12 @@ from typing import Any, Optional
 import torch
 import torch.nn as nn
 from constants import DEVICE, transformer_constants
+from models.configurable_blocks import (
+    build_input_projection,
+    merge_block_cfg,
+    transformer_activation_name,
+)
+from models.configurable_blocks import ConfigurableLinearBlock
 from models.model_state import RingBuffer
 
 
@@ -16,7 +22,6 @@ def _get_config(config: Optional[dict[str, Any]] = None) -> dict[str, Any]:
 def _sliding_band_mask(
     length: int, window: int, device: torch.device
 ) -> torch.Tensor:
-    """Bool attention mask: True blocks. Causal attention with at most ``window`` positions."""
     i = torch.arange(length, device=device).unsqueeze(1)
     j = torch.arange(length, device=device).unsqueeze(0)
     causal_ok = j <= i
@@ -27,7 +32,6 @@ def _sliding_band_mask(
 def _streaming_window_masks(
     seq_len: int, window: int, device: torch.device
 ) -> tuple[torch.Tensor, torch.Tensor | None]:
-    """Left-pad to ``window``; block padded keys and future positions."""
     pad = window - seq_len
     i = torch.arange(window, device=device).unsqueeze(1)
     j = torch.arange(window, device=device).unsqueeze(0)
@@ -42,6 +46,26 @@ def _streaming_window_masks(
     return attn_mask, key_padding
 
 
+def _build_post_trunk(
+    in_dim: int,
+    post_stack: dict[str, Any] | None,
+    global_block: dict[str, Any] | None,
+) -> tuple[nn.Module, int]:
+    if not post_stack:
+        return nn.Identity(), in_dim
+    layer_dims = list(post_stack.get("hidden_dims") or [])
+    if not layer_dims:
+        return nn.Identity(), in_dim
+    cfg = merge_block_cfg(post_stack, global_block)
+    dims = [in_dim] + layer_dims
+    blocks = [
+        ConfigurableLinearBlock(dims[i], dims[i + 1], cfg)
+        for i in range(len(dims) - 1)
+    ]
+    trunk = nn.Sequential(*blocks) if len(blocks) > 1 else blocks[0]
+    return trunk, layer_dims[-1]
+
+
 class WindowTransformerModel(nn.Module):
 
     def __init__(self, config: Optional[dict[str, Any]] = None):
@@ -54,19 +78,28 @@ class WindowTransformerModel(nn.Module):
         n_heads = cfg["n_heads"]
         if self.d_model % n_heads != 0:
             raise ValueError("d_model must be divisible by n_heads")
-        self.input_proj = nn.Linear(self.input_dim, self.d_model)
+        gb = cfg.get("block")
+        self.input_proj = build_input_projection(
+            self.input_dim, self.d_model, cfg.get("input_stack"), gb
+        )
+        enc_act = transformer_activation_name(cfg.get("encoder_activation", "gelu"))
+        enc_dropout = float(cfg.get("encoder_dropout", cfg.get("dropout", 0.0)))
+        norm_first = bool(cfg.get("encoder_norm_first", True))
         layer = nn.TransformerEncoderLayer(
             d_model=self.d_model,
             nhead=n_heads,
             dim_feedforward=cfg["dim_feedforward"],
-            dropout=cfg.get("dropout", 0.0),
+            dropout=enc_dropout,
             batch_first=True,
-            activation="gelu",
-            norm_first=True,
+            activation=enc_act,
+            norm_first=norm_first,
         )
         self.encoder = nn.TransformerEncoder(layer, num_layers=cfg["n_layers"])
-        self.head0 = nn.Linear(self.d_model, 1)
-        self.head1 = nn.Linear(self.d_model, 1)
+        self.post_trunk, head_in = _build_post_trunk(
+            self.d_model, cfg.get("post_stack"), gb
+        )
+        self.head0 = nn.Linear(head_in, 1)
+        self.head1 = nn.Linear(head_in, 1)
         self.residual_proj = nn.Linear(self.input_dim, self.output_dim)
         self._buffer = RingBuffer(self.window, self.d_model, DEVICE)
         self._last_seq_ix: int | None = None
@@ -97,7 +130,7 @@ class WindowTransformerModel(nn.Module):
             seq = torch.cat([pad, seq], dim=0)
         seq_b = seq.unsqueeze(0)
         h = self.encoder(seq_b, mask=attn_mask, src_key_padding_mask=key_pad)
-        return h[0, -1]
+        return self.post_trunk(h[0, -1])
 
     def forward(self, x: torch.Tensor, seq_ix: int | None = None) -> torch.Tensor:
         if seq_ix is not None and seq_ix != self._last_seq_ix:
@@ -129,5 +162,6 @@ class WindowTransformerModel(nn.Module):
         e = self.input_proj(x)
         mask = self._band_mask_for_length(t, e.device)
         out = self.encoder(e, mask=mask)
+        out = self.post_trunk(out)
         pred = torch.cat([self.head0(out), self.head1(out)], dim=-1) + residual
         return pred.squeeze(0) if squeeze else pred

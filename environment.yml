@@ -21,6 +21,7 @@ dependencies:
       - nvidia-curand-cu12==10.3.9.90
       - nvidia-cusolver-cu12==11.7.3.90
       - nvidia-nvtx-cu12==12.8.90
+      - optuna==4.2.1
       - pip==26.0.1
       - platformdirs==4.2.2
       - pyqt6==6.10.2

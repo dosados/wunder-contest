@@ -3,6 +3,8 @@ from typing import Any, Optional
 import torch
 import torch.nn as nn
 from constants import INPUT_DIM, TARGET_DIM, ssm_constants
+from models.configurable_blocks import build_input_projection, merge_block_cfg
+from models.configurable_blocks import ConfigurableLinearBlock
 from .ssm_mamba_block import MambaBlock
 from .ssm_model_state import MambaBlockState, SSMModelState
 
@@ -24,6 +26,26 @@ def _get_config(config: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     return defaults
 
 
+def _build_post_trunk(
+    in_dim: int,
+    post_stack: dict[str, Any] | None,
+    global_block: dict[str, Any] | None,
+) -> tuple[nn.Module, int]:
+    if not post_stack:
+        return nn.Identity(), in_dim
+    layer_dims = list(post_stack.get("hidden_dims") or [])
+    if not layer_dims:
+        return nn.Identity(), in_dim
+    cfg = merge_block_cfg(post_stack, global_block)
+    dims = [in_dim] + layer_dims
+    blocks = [
+        ConfigurableLinearBlock(dims[i], dims[i + 1], cfg)
+        for i in range(len(dims) - 1)
+    ]
+    trunk = nn.Sequential(*blocks) if len(blocks) > 1 else blocks[0]
+    return trunk, layer_dims[-1]
+
+
 class SSMModel(nn.Module):
 
     def __init__(self, config: Optional[dict[str, Any]] = None):
@@ -33,7 +55,10 @@ class SSMModel(nn.Module):
         self.d_model = cfg["d_model"]
         self.n_layers = cfg["n_layers"]
         self.output_dim = cfg["output_dim"]
-        self.input_proj = nn.Linear(cfg["input_dim"], self.d_model)
+        gb = cfg.get("block")
+        self.input_proj = build_input_projection(
+            cfg["input_dim"], self.d_model, cfg.get("input_stack"), gb
+        )
         self.blocks = nn.ModuleList(
             [
                 MambaBlock(
@@ -47,8 +72,11 @@ class SSMModel(nn.Module):
                 for i in range(self.n_layers)
             ]
         )
-        self.head0 = nn.Linear(self.d_model, 1)
-        self.head1 = nn.Linear(self.d_model, 1)
+        self.post_trunk, head_in = _build_post_trunk(
+            self.d_model, cfg.get("post_stack"), gb
+        )
+        self.head0 = nn.Linear(head_in, 1)
+        self.head1 = nn.Linear(head_in, 1)
         self.residual_proj = nn.Linear(cfg["input_dim"], self.output_dim)
         self._d_conv = cfg["d_conv"]
         self._d_inner = int(cfg["expand"] * self.d_model)
@@ -81,6 +109,7 @@ class SSMModel(nn.Module):
             x_proj = self.input_proj(x.unsqueeze(0)).squeeze(0)
             for block, block_state in zip(self.blocks, state.block_states):
                 x_proj = block.forward_step(x_proj.unsqueeze(0), block_state).squeeze(0)
+            x_proj = self.post_trunk(x_proj)
             out = torch.stack(
                 [
                     self.head0(x_proj.unsqueeze(0)).squeeze(0).squeeze(-1),
@@ -98,6 +127,7 @@ class SSMModel(nn.Module):
                 xi_proj = block.forward_step(xi_proj.unsqueeze(0), block_state).squeeze(
                     0
                 )
+            xi_proj = self.post_trunk(xi_proj)
             out_i = torch.stack(
                 [
                     self.head0(xi_proj.unsqueeze(0)).squeeze(0).squeeze(-1),
@@ -117,5 +147,6 @@ class SSMModel(nn.Module):
         x = self.input_proj(x)
         for block in self.blocks:
             x = block(x)
+        x = self.post_trunk(x)
         out = torch.cat([self.head0(x), self.head1(x)], dim=-1) + residual
         return out.squeeze(0) if squeeze else out

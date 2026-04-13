@@ -1,7 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Any
-import torch
 from torch.utils.data import DataLoader
 from constants import (
     ARTIFACTS_ROOT,
@@ -16,6 +15,7 @@ from constants import (
 from dataset import ParquetSequenceDataset
 from models import create_model
 from training import train_model
+from training.engine import TrainResult
 from utils import (
     get_logger,
     make_run_dir,
@@ -26,13 +26,9 @@ from utils import (
 )
 
 
-def run_base_training(
-    config: dict[str, Any], config_path: str | Path, process_name: str
-) -> dict[str, Any]:
-    logger = get_logger(process_name)
-    run_dir = make_run_dir(ARTIFACTS_ROOT, process_name)
-    snapshot_config(config_path, run_dir)
-    logger.info("Run dir: %s", run_dir)
+def execute_training(
+    config: dict[str, Any], process_name: str, run_dir: str | Path
+) -> TrainResult:
     model_name = config["model"]["name"]
     model_cfg = config["model"].get("params", {})
     model = create_model(model_name, model_cfg)
@@ -59,7 +55,7 @@ def run_base_training(
             shuffle=False,
             num_workers=0,
         )
-    result = train_model(
+    return train_model(
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
@@ -69,6 +65,41 @@ def run_base_training(
         run_dir=run_dir,
         warmup_steps=int(config.get("warmup_steps", WARMUP_STEPS)),
         loss_name=config.get("loss", "mse"),
+    )
+
+
+def run_training_job(
+    config: dict[str, Any],
+    process_name: str,
+    run_dir: str | Path | None = None,
+    *,
+    snapshot_original_config: str | Path | None = None,
+) -> tuple[TrainResult, Path]:
+    run_dir = Path(
+        run_dir if run_dir is not None else make_run_dir(ARTIFACTS_ROOT, process_name)
+    )
+    (run_dir / "weights").mkdir(parents=True, exist_ok=True)
+    if snapshot_original_config is not None:
+        (run_dir / "config_snapshot").mkdir(parents=True, exist_ok=True)
+        snapshot_config(snapshot_original_config, run_dir)
+    else:
+        save_json(config, run_dir / "config.json")
+    result = execute_training(config, process_name, run_dir)
+    return result, run_dir
+
+
+def run_base_training(
+    config: dict[str, Any], config_path: str | Path, process_name: str
+) -> dict[str, Any]:
+    logger = get_logger(process_name)
+    run_dir = make_run_dir(ARTIFACTS_ROOT, process_name)
+    snapshot_config(config_path, run_dir)
+    logger.info("Run dir: %s", run_dir)
+    result, _ = run_training_job(
+        config,
+        process_name,
+        run_dir=run_dir,
+        snapshot_original_config=config_path,
     )
     plot_history(result.history, Path(run_dir) / "plots")
     save_json(result.history, Path(run_dir) / "metrics_history.json")

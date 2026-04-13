@@ -23,6 +23,7 @@ convo_constants = {
     "linear1_dim": 64,
     "conv_window": 5,
     "conv_dim": 128,
+    "conv_activation": "gelu",
     "lstm_hidden": 256,
     "lstm_num_layers": 2,
     "output_dim": 2,
@@ -79,6 +80,9 @@ transformer_constants = {
     "n_layers": 2,
     "dim_feedforward": 256,
     "dropout": 0.0,
+    "encoder_dropout": 0.0,
+    "encoder_activation": "gelu",
+    "encoder_norm_first": True,
     "output_dim": TARGET_DIM,
 }
 WEIGHTS_TRANSFORMER_DIR = os.path.join(ARTIFACTS_ROOT, "weights_transformer")

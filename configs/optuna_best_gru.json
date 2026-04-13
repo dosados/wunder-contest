@@ -1,0 +1,64 @@
+{
+  "model_name": "gru",
+  "best_value": 0.27365497094931485,
+  "best_trial_number": 19,
+  "metric": "contest_metric",
+  "base_config_path": "/home/mants/Documents/own/wunder-contest/configs/train_gru.json",
+  "best_trial_run_dir": "/home/mants/Documents/own/wunder-contest/artifacts/optuna/tune_gru/trial/20260411_032905",
+  "optuna_params": {
+    "lr": 0.0009408712382084379,
+    "batch_size": 8,
+    "gru_hidden": 128,
+    "gru_num_layers": 2,
+    "linear_dim": 64,
+    "blk_act": "relu",
+    "blk_bn": false,
+    "blk_do": true,
+    "blk_dropout": 0.10001213468855177,
+    "blk_skip": "sum",
+    "gru_post": "two",
+    "gru_post_h1": 320,
+    "gru_post_h2": 192,
+    "post_act": "relu",
+    "post_bn": true,
+    "post_do": true,
+    "post_dropout": 0.0802526514313003,
+    "post_skip": "sum",
+    "gru_input_stack": false
+  },
+  "training_config": {
+    "model": {
+      "name": "gru",
+      "params": {
+        "input_dim": 32,
+        "linear_dim": 64,
+        "gru_hidden": 128,
+        "gru_num_layers": 2,
+        "output_dim": 2,
+        "block": {
+          "activation": "relu",
+          "use_batchnorm": false,
+          "use_dropout": true,
+          "dropout": 0.10001213468855177,
+          "skip_mode": "sum"
+        },
+        "post_stack": {
+          "hidden_dims": [
+            320,
+            192
+          ],
+          "activation": "relu",
+          "use_batchnorm": true,
+          "use_dropout": true,
+          "dropout": 0.0802526514313003,
+          "skip_mode": "sum"
+        }
+      }
+    },
+    "epochs": 20,
+    "lr": 0.0009408712382084379,
+    "batch_size": 8,
+    "warmup_steps": 99,
+    "loss": "mse"
+  }
+}

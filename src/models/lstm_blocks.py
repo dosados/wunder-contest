@@ -5,12 +5,14 @@ from constants import convo_constants
 
 class StreamingLSTM(nn.Module):
 
-    def __init__(self):
+    def __init__(self, cfg: dict | None = None):
         super().__init__()
-        self.hidden_size = convo_constants.get("lstm_hidden")
-        self.num_layers = convo_constants.get("lstm_num_layers", 1)
+        cfg = dict(convo_constants) if cfg is None else {**convo_constants, **cfg}
+        self.hidden_size = cfg["lstm_hidden"]
+        self.num_layers = cfg.get("lstm_num_layers", 1)
+        input_size = cfg.get("lstm_input_size", cfg["conv_dim"])
         self.lstm = nn.LSTM(
-            input_size=convo_constants.get("conv_dim"),
+            input_size=input_size,
             hidden_size=self.hidden_size,
             num_layers=self.num_layers,
             batch_first=True,

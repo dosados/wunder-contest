@@ -23,5 +23,8 @@ env/
 # Dataset files (competition data; не коммитим — кладите локально в datasets/, см. README)
 datasets/*.parquet
 
+# Optuna artifacts
+artifacts/optuna/
+
 # VS Code
 .vscode/
