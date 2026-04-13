@@ -7,7 +7,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
-from training.optuna_runner import run_optuna_study, save_best_optuna_result
+from orchestration.jobs import build_job_spec, execute_job
 
 
 def main() -> None:
@@ -54,6 +54,13 @@ def main() -> None:
         default=None,
         help="Where to write best config JSON (default: configs/optuna_best_<model>.json)",
     )
+    parser.add_argument("--artifacts-root", default=None)
+    parser.add_argument("--output-manifest", default=None)
+    parser.add_argument(
+        "--export-only",
+        action="store_true",
+        help="Skip tuning and export best config from existing study storage",
+    )
     args = parser.parse_args()
     defaults = {
         "gru": REPO_ROOT / "configs" / "train_gru.json",
@@ -71,22 +78,34 @@ def main() -> None:
         args.trials if args.trials is not None else optuna_cfg.get("n_trials", 20)
     )
     study_name = args.study_name or optuna_cfg.get("study_name")
-    study = run_optuna_study(
-        base_config_path=cfg_path,
-        model_name=args.model,
-        n_trials=n_trials,
-        study_name_override=study_name,
-        storage=args.storage,
-        load_if_exists=args.load_if_exists,
+    optuna_job_cfg = {
+        "model_name": args.model,
+        "base_config_path": str(cfg_path),
+        "n_trials": n_trials,
+        "study_name": study_name,
+        "storage": args.storage,
+        "load_if_exists": args.load_if_exists,
+        "output_path": args.output,
+        "export_only": args.export_only,
+    }
+    spec = build_job_spec(
+        job_type="optuna_tune",
+        process_name=f"optuna_tune_{args.model}",
+        config=optuna_job_cfg,
+        config_path=str(cfg_path),
+        artifacts_root=args.artifacts_root,
+        output_manifest=args.output_manifest,
+        write_latest_link=False,
     )
-    out = save_best_optuna_result(
-        study,
-        cfg_path,
-        args.model,
-        output_path=args.output,
+    result = execute_job(spec)
+    best_cfg = result.outputs.get("best_config_path") or result.outputs.get(
+        "train_ready_config_path"
     )
-    print(f"Best metric: {study.best_value}")
-    print(f"Saved: {out}")
+    if result.metrics.get("best_metric") is not None:
+        print(f"Best metric: {result.metrics['best_metric']}")
+    if isinstance(best_cfg, str):
+        print(f"Saved: {best_cfg}")
+    print(result.manifest_path)
 
 
 if __name__ == "__main__":

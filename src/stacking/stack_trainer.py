@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 import joblib
@@ -11,6 +12,24 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm.auto import tqdm
 from metrics import contest_metric, mae, mse
 from utils import get_logger
+
+
+@dataclass
+class StackFeatureSpec:
+    model_names: list[str]
+    feature_order: list[str]
+    target_names: list[str]
+    warmup_steps: int
+    version: str = "1.0"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "model_names": self.model_names,
+            "feature_order": self.feature_order,
+            "target_names": self.target_names,
+            "warmup_steps": self.warmup_steps,
+            "version": self.version,
+        }
 
 
 def _read_oof(path: str, selected_models: list[str] | None = None):
@@ -26,7 +45,8 @@ def _read_oof(path: str, selected_models: list[str] | None = None):
     y = np.column_stack(
         [tbl["target_t0"].to_numpy(), tbl["target_t1"].to_numpy()]
     ).astype(np.float32)
-    return (X, y)
+    model_names = sorted({c.rsplit("_pred_", 1)[0] for c in x_cols})
+    return (X, y, x_cols, model_names)
 
 
 class MLPStack(nn.Module):
@@ -47,7 +67,15 @@ class MLPStack(nn.Module):
 
 def train_stack(config: dict[str, Any], run_dir: str | Path) -> dict[str, Any]:
     logger = get_logger("stack_trainer")
-    X, y = _read_oof(config["oof_path"], config.get("selected_models"))
+    X, y, feature_order, model_names = _read_oof(
+        config["oof_path"], config.get("selected_models")
+    )
+    feature_spec = StackFeatureSpec(
+        model_names=model_names,
+        feature_order=feature_order,
+        target_names=["target_t0", "target_t1"],
+        warmup_steps=int(config.get("warmup_steps", 99)),
+    )
     mode = config.get("mode", "mlp")
     out_weights = Path(run_dir) / "weights"
     out_weights.mkdir(parents=True, exist_ok=True)
@@ -68,6 +96,7 @@ def train_stack(config: dict[str, Any], run_dir: str | Path) -> dict[str, Any]:
             "mode": "ridge",
             "history": history,
             "weights_path": str(out_weights / "ridge.joblib"),
+            "feature_spec": feature_spec.to_dict(),
         }
     device = config.get("device", "cpu")
     split = float(config.get("val_split", 0.2))
@@ -136,4 +165,9 @@ def train_stack(config: dict[str, Any], run_dir: str | Path) -> dict[str, Any]:
         if v_metric > best_metric:
             best_metric = v_metric
             torch.save(model.state_dict(), best_path)
-    return {"mode": "mlp", "history": history, "weights_path": str(best_path)}
+    return {
+        "mode": "mlp",
+        "history": history,
+        "weights_path": str(best_path),
+        "feature_spec": feature_spec.to_dict(),
+    }

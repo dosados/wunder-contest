@@ -1,6 +1,7 @@
 from __future__ import annotations
 import argparse
-import os
+from pathlib import Path
+from typing import Any
 import numpy as np
 import torch
 import torch.nn as nn
@@ -71,29 +72,28 @@ def _kfold_indices(n: int, folds: int, seed: int):
     ]
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Train meta-head on OOF predictions")
-    parser.add_argument("--variant", choices=["lstm_gru", "lstm_ssm"], required=True)
-    parser.add_argument("--folds", type=int, default=5)
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--seed", type=int, default=42)
-    args = parser.parse_args()
+def train_meta_oof(config: dict[str, Any], run_dir: str | Path) -> dict[str, Any]:
+    variant = config["variant"]
+    folds = int(config.get("folds", 5))
+    epochs = int(config.get("epochs", 10))
+    seed = int(config.get("seed", 42))
+    hidden = int(config.get("hidden", 64))
     ds = ParquetSequenceDataset(
         TRAIN_PATH, feature_columns=FEATURE_COLUMNS, target_columns=TARGET_COLUMNS
     )
-    pair = build_base_pair(args.variant)
+    pair = build_base_pair(variant)
     pair.set_backbones_trainable(False)
     oof_x, oof_y = ([], [])
-    for _, valid_idx in _kfold_indices(len(ds), args.folds, args.seed):
+    for _, valid_idx in _kfold_indices(len(ds), folds, seed):
         xv, yv = _collect_fold_predictions(pair, ds, valid_idx)
         oof_x.append(xv)
         oof_y.append(yv)
     X = torch.from_numpy(np.concatenate(oof_x, axis=0)).float().to(DEVICE)
     Y = torch.from_numpy(np.concatenate(oof_y, axis=0)).float().to(DEVICE)
-    meta = _build_meta_head().to(DEVICE)
+    meta = _build_meta_head(hidden=hidden).to(DEVICE)
     opt = torch.optim.Adam(meta.parameters(), lr=LR_STACK)
     loss_fn = nn.MSELoss()
-    for _ in range(args.epochs):
+    for _ in range(epochs):
         pred = meta(X)
         loss = loss_fn(pred, Y)
         opt.zero_grad()
@@ -102,12 +102,43 @@ def main():
     with torch.no_grad():
         p = meta(X).clamp(PRED_CLIP_LOW, PRED_CLIP_HIGH).cpu().numpy()
         t = Y.cpu().numpy()
-    print(
-        f"OOF meta score ({args.variant}): {(weighted_pearson(t[:, 0], p[:, 0]) + weighted_pearson(t[:, 1], p[:, 1])) * 0.5:.6f}"
+    score = (weighted_pearson(t[:, 0], p[:, 0]) + weighted_pearson(t[:, 1], p[:, 1])) * 0.5
+    run_dir = Path(run_dir)
+    weights_dir = run_dir / "weights"
+    weights_dir.mkdir(parents=True, exist_ok=True)
+    weights_path = weights_dir / "meta_head_oof.pt"
+    torch.save(meta.state_dict(), weights_path)
+    # Keep historical location for inference compatibility.
+    legacy_path = Path(STACK_DIR) / variant / "meta_head_oof.pt"
+    legacy_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(meta.state_dict(), legacy_path)
+    return {
+        "variant": variant,
+        "score": float(score),
+        "weights_path": str(weights_path),
+        "legacy_weights_path": str(legacy_path),
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Train meta-head on OOF predictions")
+    parser.add_argument("--variant", choices=["lstm_gru", "lstm_ssm"], required=True)
+    parser.add_argument("--folds", type=int, default=5)
+    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--run-dir", type=str, default=None)
+    args = parser.parse_args()
+    run_dir = Path(args.run_dir) if args.run_dir else Path(STACK_DIR) / args.variant
+    result = train_meta_oof(
+        {
+            "variant": args.variant,
+            "folds": args.folds,
+            "epochs": args.epochs,
+            "seed": args.seed,
+        },
+        run_dir=run_dir,
     )
-    out_dir = os.path.join(STACK_DIR, args.variant)
-    os.makedirs(out_dir, exist_ok=True)
-    torch.save(meta.state_dict(), os.path.join(out_dir, "meta_head_oof.pt"))
+    print(f"OOF meta score ({args.variant}): {result['score']:.6f}")
 
 
 if __name__ == "__main__":
