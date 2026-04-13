@@ -7,16 +7,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
-from constants import ARTIFACTS_ROOT
-from stacking import build_oof_dataset
-from utils import (
-    load_json_config,
-    make_run_dir,
-    save_json,
-    snapshot_config,
-    get_logger,
-    update_latest_link,
-)
+from orchestration.jobs import build_job_spec, execute_job
+from utils import load_json_config
 
 
 def main():
@@ -29,20 +21,25 @@ def main():
     parser.add_argument(
         "--model", default=None, help="Optional single model name to rebuild"
     )
+    parser.add_argument("--artifacts-root", default=None)
+    parser.add_argument("--output-manifest", default=None)
     args = parser.parse_args()
     cfg = load_json_config(args.config)
     if args.model:
         cfg["models"] = [
             m for m in cfg.get("models", []) if m.get("name") == args.model
         ]
-    logger = get_logger("build_oof")
-    run_dir = make_run_dir(ARTIFACTS_ROOT, "build_oof")
-    snapshot_config(args.config, run_dir)
-    logger.info("Run dir: %s", run_dir)
-    outputs = build_oof_dataset(cfg, run_dir)
-    save_json({"outputs": outputs}, Path(run_dir) / "manifest.json")
-    update_latest_link(run_dir)
-    logger.info("OOF done. merged=%s", outputs.get("merged"))
+    spec = build_job_spec(
+        job_type="build_oof",
+        process_name="build_oof",
+        config=cfg,
+        config_path=args.config,
+        artifacts_root=args.artifacts_root,
+        output_manifest=args.output_manifest,
+        write_latest_link=True,
+    )
+    result = execute_job(spec)
+    print(result.manifest_path)
 
 
 if __name__ == "__main__":

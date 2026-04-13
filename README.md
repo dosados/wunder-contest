@@ -49,6 +49,7 @@ conda env update -f environment.yml --prune
 ```
 
 `pipelines/*.py` prepends `src/` to `sys.path`, so you do not need `PYTHONPATH` when running `python pipelines/...`.
+All pipeline entrypoints are thin wrappers over a unified Job API in `src/orchestration/jobs.py`.
 
 ---
 
@@ -70,8 +71,10 @@ Column layout matches `src/constants.py`: features `p0`–`p11`, `v0`–`v11`, `
 ```bash
 python pipelines/train_conv_lstm.py --config configs/train_conv_lstm.json
 python pipelines/train_gru.py       --config configs/train_gru.json
-python pipelines/train_ssm.py        --config configs/train_ssm.json
+python pipelines/train_ssm.py       --config configs/train_ssm.json
 ```
+
+Run id is always provided by the system (auto-generated inside pipelines).
 
 Each run writes under `artifacts/<process>/<run_id>/` (weights, metrics, plots). Update `configs/build_oof.json` if your weight paths differ from `artifacts/.../latest/...`.
 
@@ -93,7 +96,21 @@ python pipelines/train_stack.py --config configs/train_stack_ridge.json
 
 Point `oof_path` in the stack config at the merged OOF parquet produced by `build_oof` (e.g. `artifacts/build_oof/latest/oof/oof_stack_train.parquet`).
 
-### 4. Inference layout (competition-style `PredictionModel`)
+### 4. Optuna tuning and export
+
+```bash
+python pipelines/optuna_tune.py --model gru --config configs/train_gru.json --trials 30 --storage sqlite:///artifacts/optuna/optuna.db
+```
+
+The output config is train-ready and can be passed directly to base training.
+
+### 5. Train orchestration meta-head
+
+```bash
+python pipelines/train_meta.py --config configs/train_meta_oof.json
+```
+
+### 6. Inference layout (competition-style `PredictionModel`)
 
 `src/solution.py` expects trained weights and configs under paths defined in `src/constants.py`, including:
 
@@ -126,8 +143,13 @@ Integrate `PredictionModel` from `src/solution.py` with the host that provides `
 - `pipelines/train_conv_lstm.py`
 - `pipelines/train_gru.py`
 - `pipelines/train_ssm.py`
+- `pipelines/train_transformer.py`
 - `pipelines/build_oof.py` — full model list or a single model via `--model`
 - `pipelines/train_stack.py` — second-level model from config (`mlp` or `ridge`)
+- `pipelines/optuna_tune.py` — hyperparameter search and export of best train-ready config
+- `pipelines/train_meta.py` — train OOF meta-head for orchestration pair
+
+See `docs/airflow_job_api.md` for Airflow task IO, manifest schema, and idempotency guidance.
 
 ### Artifact layout
 

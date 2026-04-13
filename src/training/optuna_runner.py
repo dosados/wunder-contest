@@ -106,15 +106,15 @@ def save_best_optuna_result(
     best_trial_cfg.pop("optuna", None)
     production_epochs = int(base.get("epochs", best_trial_cfg.get("epochs", 20)))
     best_trial_cfg["epochs"] = production_epochs
-    out = {
+    out = copy.deepcopy(best_trial_cfg)
+    out["_meta"] = {
         "model_name": normalize_model_name(model_name),
-        "best_value": study.best_value,
-        "best_trial_number": best.number,
+        "best_value": float(study.best_value),
+        "best_trial_number": int(best.number),
         "metric": "contest_metric",
         "base_config_path": str(Path(base_config_path).resolve()),
         "best_trial_run_dir": str(run_dir),
         "optuna_params": best.params,
-        "training_config": best_trial_cfg,
     }
     out_path = Path(
         output_path
@@ -123,3 +123,29 @@ def save_best_optuna_result(
     )
     save_json(out, out_path)
     return out_path
+
+
+def export_best_config_from_storage(
+    *,
+    base_config_path: str | Path,
+    model_name: str,
+    study_name: str,
+    storage: str,
+    output_path: str | Path | None = None,
+) -> dict[str, Any]:
+    study = optuna.load_study(study_name=study_name, storage=storage)
+    save_path = save_best_optuna_result(
+        study,
+        base_config_path,
+        model_name,
+        output_path=output_path,
+    )
+    best = study.best_trial
+    run_dir = Path(best.user_attrs["run_dir"])
+    return {
+        "best_value": float(study.best_value),
+        "best_trial_number": int(best.number),
+        "best_trial_run_dir": str(run_dir),
+        "train_ready_config_path": str(save_path),
+        "study_name": study.study_name,
+    }

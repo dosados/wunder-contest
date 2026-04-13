@@ -1,0 +1,7 @@
+{
+  "variant": "lstm_ssm",
+  "folds": 5,
+  "epochs": 10,
+  "seed": 42,
+  "hidden": 64
+}
