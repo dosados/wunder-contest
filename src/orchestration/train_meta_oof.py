@@ -108,7 +108,6 @@ def train_meta_oof(config: dict[str, Any], run_dir: str | Path) -> dict[str, Any
     weights_dir.mkdir(parents=True, exist_ok=True)
     weights_path = weights_dir / "meta_head_oof.pt"
     torch.save(meta.state_dict(), weights_path)
-    # Keep historical location for inference compatibility.
     legacy_path = Path(STACK_DIR) / variant / "meta_head_oof.pt"
     legacy_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(meta.state_dict(), legacy_path)

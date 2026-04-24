@@ -7,7 +7,20 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
-from orchestration.jobs import build_job_spec, execute_job
+from constants import ARTIFACTS_ROOT
+from training.optuna_runner import (
+    export_best_config_from_storage,
+    run_optuna_study,
+    save_best_optuna_result,
+)
+from utils import (
+    default_train_config_path,
+    load_json_config,
+    make_run_dir,
+    save_json,
+    snapshot_config,
+    update_latest_link,
+)
 
 
 def main() -> None:
@@ -61,51 +74,81 @@ def main() -> None:
         action="store_true",
         help="Skip tuning and export best config from existing study storage",
     )
+    parser.add_argument(
+        "--force-save",
+        action="store_true",
+        help="Always overwrite output config even when metric is not improved",
+    )
     args = parser.parse_args()
-    defaults = {
-        "gru": REPO_ROOT / "configs" / "train_gru.json",
-        "conv_lstm": REPO_ROOT / "configs" / "train_conv_lstm.json",
-        "ssm": REPO_ROOT / "configs" / "train_ssm.json",
-        "transformer": REPO_ROOT / "configs" / "train_transformer.json",
-        "window_transformer": REPO_ROOT / "configs" / "train_transformer.json",
-    }
-    cfg_path = Path(args.config or defaults[args.model])
-    from utils import load_json_config
-
+    cfg_path = Path(args.config) if args.config else default_train_config_path(args.model)
     base = load_json_config(cfg_path)
     optuna_cfg = base.get("optuna") or {}
     n_trials = int(
         args.trials if args.trials is not None else optuna_cfg.get("n_trials", 20)
     )
     study_name = args.study_name or optuna_cfg.get("study_name")
-    optuna_job_cfg = {
-        "model_name": args.model,
-        "base_config_path": str(cfg_path),
-        "n_trials": n_trials,
-        "study_name": study_name,
-        "storage": args.storage,
-        "load_if_exists": args.load_if_exists,
-        "output_path": args.output,
-        "export_only": args.export_only,
+    process_name = f"optuna_tune_{args.model}"
+    root = Path(args.artifacts_root) if args.artifacts_root else Path(ARTIFACTS_ROOT)
+    run_dir = make_run_dir(root, process_name)
+    snapshot_config(cfg_path, run_dir)
+    if args.export_only:
+        if not args.storage or not study_name:
+            raise ValueError("export-only requires both --storage and --study-name")
+        outputs = export_best_config_from_storage(
+            base_config_path=cfg_path,
+            model_name=args.model,
+            study_name=study_name,
+            storage=args.storage,
+            output_path=args.output,
+            force_save=args.force_save,
+        )
+        best_metric = outputs.get("best_value")
+        best_cfg = outputs.get("train_ready_config_path")
+    else:
+        study = run_optuna_study(
+            base_config_path=cfg_path,
+            model_name=args.model,
+            n_trials=n_trials,
+            study_name_override=study_name,
+            storage=args.storage,
+            load_if_exists=args.load_if_exists,
+        )
+        save_result = save_best_optuna_result(
+            study,
+            cfg_path,
+            args.model,
+            output_path=args.output,
+            force_save=args.force_save,
+        )
+        outputs = {
+            "study_name": study.study_name,
+            "best_value": float(study.best_value),
+            "best_trial_number": int(study.best_trial.number),
+            "best_config_path": str(save_result["path"]),
+            "config_saved": bool(save_result["saved"]),
+            "previous_best_value": save_result["previous_best_value"],
+            "new_best_value": save_result["new_best_value"],
+        }
+        save_json(outputs, run_dir / "optuna_summary.json")
+        best_metric = outputs["best_value"]
+        best_cfg = outputs["best_config_path"]
+    manifest = {
+        "status": "success",
+        "process": process_name,
+        "run_id": run_dir.name,
+        "run_dir": str(run_dir),
+        "best_metric": best_metric,
+        "outputs": outputs,
+        "config_path": str(cfg_path.resolve()),
     }
-    spec = build_job_spec(
-        job_type="optuna_tune",
-        process_name=f"optuna_tune_{args.model}",
-        config=optuna_job_cfg,
-        config_path=str(cfg_path),
-        artifacts_root=args.artifacts_root,
-        output_manifest=args.output_manifest,
-        write_latest_link=False,
-    )
-    result = execute_job(spec)
-    best_cfg = result.outputs.get("best_config_path") or result.outputs.get(
-        "train_ready_config_path"
-    )
-    if result.metrics.get("best_metric") is not None:
-        print(f"Best metric: {result.metrics['best_metric']}")
+    manifest_path = Path(args.output_manifest) if args.output_manifest else run_dir / "manifest.json"
+    save_json(manifest, manifest_path)
+    update_latest_link(run_dir)
+    if best_metric is not None:
+        print(f"Best metric: {best_metric}")
     if isinstance(best_cfg, str):
         print(f"Saved: {best_cfg}")
-    print(result.manifest_path)
+    print(manifest_path)
 
 
 if __name__ == "__main__":

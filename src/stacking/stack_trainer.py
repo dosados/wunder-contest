@@ -8,6 +8,7 @@ import pyarrow.parquet as pq
 import torch
 import torch.nn as nn
 from sklearn.linear_model import Ridge
+from sklearn.multioutput import MultiOutputRegressor
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm.auto import tqdm
 from metrics import contest_metric, mae, mse
@@ -97,6 +98,56 @@ def train_stack(config: dict[str, Any], run_dir: str | Path) -> dict[str, Any]:
             "history": history,
             "weights_path": str(out_weights / "ridge.joblib"),
             "feature_spec": feature_spec.to_dict(),
+        }
+    if mode == "xgboost":
+        try:
+            from xgboost import XGBRegressor
+        except Exception as exc:
+            raise RuntimeError(
+                "xgboost mode requires xgboost to be installed"
+            ) from exc
+        split = float(config.get("val_split", 0.2))
+        n = len(X)
+        n_val = max(1, int(n * split))
+        X_train, X_val = (X[:-n_val], X[-n_val:])
+        y_train, y_val = (y[:-n_val], y[-n_val:])
+        params = {
+            "n_estimators": int(config.get("xgb_n_estimators", 300)),
+            "max_depth": int(config.get("xgb_max_depth", 6)),
+            "learning_rate": float(config.get("xgb_learning_rate", 0.05)),
+            "subsample": float(config.get("xgb_subsample", 0.9)),
+            "colsample_bytree": float(config.get("xgb_colsample_bytree", 0.9)),
+            "reg_alpha": float(config.get("xgb_reg_alpha", 0.0)),
+            "reg_lambda": float(config.get("xgb_reg_lambda", 1.0)),
+            "random_state": int(config.get("seed", 42)),
+            "objective": "reg:squarederror",
+            "n_jobs": int(config.get("xgb_n_jobs", -1)),
+            "tree_method": str(config.get("xgb_tree_method", "auto")),
+        }
+        base_model = XGBRegressor(**params)
+        model = MultiOutputRegressor(base_model)
+        model.fit(X_train, y_train)
+        pred_train = model.predict(X_train)
+        pred_val = model.predict(X_val)
+        history["train"]["contest_metric"].append(contest_metric(y_train, pred_train))
+        history["train"]["mse"].append(mse(y_train, pred_train))
+        history["train"]["mae"].append(mae(y_train, pred_train))
+        history["val"]["contest_metric"].append(contest_metric(y_val, pred_val))
+        history["val"]["mse"].append(mse(y_val, pred_val))
+        history["val"]["mae"].append(mae(y_val, pred_val))
+        logger.info(
+            "XGBoost stack val: contest=%.6f mse=%.6f mae=%.6f",
+            history["val"]["contest_metric"][-1],
+            history["val"]["mse"][-1],
+            history["val"]["mae"][-1],
+        )
+        joblib.dump(model, out_weights / "xgboost.joblib")
+        return {
+            "mode": "xgboost",
+            "history": history,
+            "weights_path": str(out_weights / "xgboost.joblib"),
+            "feature_spec": feature_spec.to_dict(),
+            "params": params,
         }
     device = config.get("device", "cpu")
     split = float(config.get("val_split", 0.2))

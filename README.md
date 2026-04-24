@@ -1,15 +1,14 @@
 # Wunder Contest — Time Series Forecasting
 
-Repository with training, orchestration, stacking, and inference code for the Wunder Fund sequence forecasting task.
+Repository with training, stacking, tuning, and inference code for the Wunder Fund sequence forecasting task.
 
 ## Current status
 
 This repo is in a **pipeline-oriented** state with:
 
-- Unified Job API (`src/orchestration/jobs.py`) used by all CLI pipelines.
-- Dedicated job handlers (`src/orchestration/handlers/`) for `base_train`, `build_oof`, `train_stack`, `train_meta`, and `optuna_tune`.
+- CLI pipelines in `pipelines/` for train, OOF, stack, meta, and Optuna flows.
 - Stable run artifacts (`artifacts/<process>/<run_id>/...`) with per-run `manifest.json`.
-- Unit test coverage for orchestration, handlers, and edge cases in `tests/unit/test_orchestration_unit.py`.
+- Pair-based inference (`lstm_gru` or `lstm_ssm`) and optional OOF-trained meta-head.
 
 ## Competition context (short)
 
@@ -23,28 +22,19 @@ This repo is in a **pipeline-oriented** state with:
 
 | Path | Role |
 |---|---|
-| `src/` | Core code: models, training, stacking, orchestration, inference, utils |
-| `pipelines/` | CLI entrypoints used for local runs / Airflow-style execution |
+| `src/` | Core code: models, training, stacking, inference, utils |
+| `pipelines/` | CLI entrypoints used for local runs |
 | `configs/` | JSON configs for all training/tuning/stacking flows |
 | `artifacts/` | Outputs: weights, plots, metrics history, manifests, config snapshots |
 | `datasets/` | Expected location for `train.parquet` and `valid.parquet` |
 | `tests/` | Unit tests (`unittest`) |
 
-### Orchestration flow
+### Pipeline flow
 
-1. `pipelines/*.py` parse args and build `JobSpec`.
-2. `execute_job(...)` in `src/orchestration/jobs.py` creates run dir + snapshot.
-3. Job is routed to one of `src/orchestration/handlers/*.py`.
-4. Handler returns `(weights, metrics, outputs)`.
-5. `manifest.json` is materialized and returned via `JobResult`.
-
-### Job handlers
-
-- `src/orchestration/handlers/base_train.py`
-- `src/orchestration/handlers/build_oof.py`
-- `src/orchestration/handlers/train_stack.py`
-- `src/orchestration/handlers/train_meta.py`
-- `src/orchestration/handlers/optuna_tune.py`
+1. `pipelines/*.py` parse CLI arguments and load JSON config.
+2. The pipeline creates a run directory under `artifacts/<process>/<run_id>/`.
+3. Training/tuning/stacking logic is executed from `src/`.
+4. `manifest.json` and extra artifacts (`weights`, `plots`, `metrics_history.json`) are written for the run.
 
 ## Data layout
 
@@ -60,38 +50,60 @@ Feature schema is defined by constants in `src/constants.py` (`p*`, `v*`, `dp*`,
 ### 1) Train base models
 
 ```bash
-python pipelines/train_conv_lstm.py --config configs/train_conv_lstm.json
-python pipelines/train_gru.py --config configs/train_gru.json
-python pipelines/train_ssm.py --config configs/train_ssm.json
-python pipelines/train_transformer.py --config configs/train_transformer.json
+python pipelines/train_conv_lstm.py
+python pipelines/train_gru.py
+python pipelines/train_ssm.py
+python pipelines/train_transformer.py
 ```
+
+When `--config` is omitted, each train pipeline first tries `configs/optuna_best_<model>.json`, and falls back to default `configs/train_<model>.json`.
 
 ### 2) Build OOF dataset
 
 ```bash
 python pipelines/build_oof.py --config configs/build_oof.json
-# optional single-model OOF
 python pipelines/build_oof.py --config configs/build_oof.json --model conv_lstm
 ```
+
+When `model_config` is missing for a model entry, `build_oof` resolves it from `optuna_best_<model>.json` if present, otherwise from default train config.
 
 ### 3) Train stack model
 
 ```bash
 python pipelines/train_stack.py --config configs/train_stack_mlp.json
 python pipelines/train_stack.py --config configs/train_stack_ridge.json
+python pipelines/train_stack.py --config configs/train_stack_xgboost.json
 ```
 
 ### 4) Run Optuna tuning / export
 
 ```bash
-python pipelines/optuna_tune.py --model gru --config configs/train_gru.json --trials 30 --storage sqlite:///artifacts/optuna/optuna.db
+python pipelines/optuna_tune.py --model gru --trials 30 --storage sqlite:///artifacts/optuna/optuna.db
 ```
+
+Use `--force-save` to always overwrite output config.
+Without `--force-save`, config is overwritten only if the new Optuna `best_value` is higher than the saved one in config `_meta`.
 
 ### 5) Train meta-head for pair orchestrator
 
 ```bash
 python pipelines/train_meta.py --config configs/train_meta_oof.json
 ```
+
+### 6) Run full end-to-end pipeline
+
+```bash
+python pipelines/run_full_pipeline.py \
+  --models conv_lstm,gru,ssm \
+  --meta-models ridge,mlp \
+  --trials-per-model 20 \
+  --skip-optuna-models ssm \
+  --force-save
+```
+
+The script runs `optuna -> base train -> build_oof -> meta train`, supports model subsets, and writes `pipeline_summary.json`.
+`build_oof` receives both `weights_path` and `model_config` from the selected best configs so OOF is built with tuned parameters.
+For skipped models it reuses `configs/optuna_best_<model>.json`; if missing, it falls back to default train config.
 
 ## Inference notes
 
@@ -125,13 +137,7 @@ Typical contents:
 - `weights/*`
 - `manifest.json`
 
-See `docs/airflow_job_api.md` for detailed Job API and manifest contract.
-
 ## Testing
-
-Current unit tests:
-
-- `tests/unit/test_orchestration_unit.py`
 
 Run tests (recommended through conda env):
 

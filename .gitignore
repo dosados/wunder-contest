@@ -25,6 +25,10 @@ datasets/*.parquet
 
 # Optuna artifacts
 artifacts/optuna/
+configs/optuna_best_*.json
+
+# Local training outputs
+artifacts/
 
 # VS Code
 .vscode/
