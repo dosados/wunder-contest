@@ -14,7 +14,7 @@ Inference is executed on a single-threaded CPU with a 1-hour time limit, so larg
 
 ### About my solution and results
 
-My best solution is a stacked ensemble: LSTM and GRU base models with an MLP meta-model.
+My best solution is a stacked ensemble: LSTM with conv1d layer and GRU base models with an MLP meta-model.
 
 It achieved a metric value of `0.289`, which is in the top 18% of the leaderboard.
 
