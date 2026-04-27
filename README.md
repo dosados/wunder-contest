@@ -1,52 +1,48 @@
 # Wunder Contest — Time Series Forecasting
 
-Repository with training, orchestration, stacking, and inference code for the Wunder Fund sequence forecasting task.
+This repository contains training, stacking, tuning, and inference code for my solution to the Wunder Fund sequence-forecasting task.
 
-## Current status
+### Competition overview
 
-This repo is in a **pipeline-oriented** state with:
+The competition task is to forecast market indicators from time-series data.
 
-- Unified Job API (`src/orchestration/jobs.py`) used by all CLI pipelines.
-- Dedicated job handlers (`src/orchestration/handlers/`) for `base_train`, `build_oof`, `train_stack`, `train_meta`, and `optuna_tune`.
-- Stable run artifacts (`artifacts/<process>/<run_id>/...`) with per-run `manifest.json`.
-- Unit test coverage for orchestration, handlers, and edge cases in `tests/unit/test_orchestration_unit.py`.
+The dataset contains multiple market series, and each snapshot includes many market features.
 
-## Competition context (short)
+The key metric is the weighted Pearson correlation between predicted target columns and ground truth values.
 
-- Public leaderboard: approximately top ~18%.
-- Metric: weighted Pearson-based score over targets `t0`, `t1` (see `src/metrics.py`).
-- Inference design: paired models via `PairOrchestrator` (`lstm_gru` or `lstm_ssm`) with optional OOF-trained meta-head.
+Inference is executed on a single-threaded CPU with a 1-hour time limit, so large models (for example, heavy transformers) are not practical.
 
-## Architecture
+### About my solution and results
+
+My best solution is a stacked ensemble: LSTM with conv1d layer and GRU base models with an MLP meta-model.
+
+It achieved a metric value of `0.289`, which is in the top 18% of the leaderboard.
+
+### About this repository
+
+This repository is a system designed for automatic model tuning, stacking, and evaluation of resulting predictions.
+
+Key capabilities:
+- Hyperparameter search with Optuna for each model
+- Building OOF datasets for stacking
+- Training stack models with different meta-heads
+- Evaluating predictions on a validation holdout
+
+# Architecture
 
 ### Top-level layout
 
 | Path | Role |
 |---|---|
-| `src/` | Core code: models, training, stacking, orchestration, inference, utils |
-| `pipelines/` | CLI entrypoints used for local runs / Airflow-style execution |
+| `src/` | Core code: models, training, stacking, inference, utils |
+| `pipelines/` | CLI entrypoints used for local runs |
 | `configs/` | JSON configs for all training/tuning/stacking flows |
 | `artifacts/` | Outputs: weights, plots, metrics history, manifests, config snapshots |
 | `datasets/` | Expected location for `train.parquet` and `valid.parquet` |
 | `tests/` | Unit tests (`unittest`) |
 
-### Orchestration flow
 
-1. `pipelines/*.py` parse args and build `JobSpec`.
-2. `execute_job(...)` in `src/orchestration/jobs.py` creates run dir + snapshot.
-3. Job is routed to one of `src/orchestration/handlers/*.py`.
-4. Handler returns `(weights, metrics, outputs)`.
-5. `manifest.json` is materialized and returned via `JobResult`.
-
-### Job handlers
-
-- `src/orchestration/handlers/base_train.py`
-- `src/orchestration/handlers/build_oof.py`
-- `src/orchestration/handlers/train_stack.py`
-- `src/orchestration/handlers/train_meta.py`
-- `src/orchestration/handlers/optuna_tune.py`
-
-## Data layout
+### Data layout
 
 Put competition parquet files here:
 
@@ -55,36 +51,57 @@ Put competition parquet files here:
 
 Feature schema is defined by constants in `src/constants.py` (`p*`, `v*`, `dp*`, `dv*`), targets are `t0`, `t1`.
 
-## Main workflows
+## Workflows
+
+### Entrypoints
+
+| Entrypoint | Purpose |
+|---|---|
+| `pipelines/optuna_tune.py` | Runs Optuna for one base model and exports `configs/optuna_best_<model>.json` |
+| `pipelines/train_conv_lstm.py` | Trains Conv-LSTM base model |
+| `pipelines/train_gru.py` | Trains GRU base model |
+| `pipelines/train_ssm.py` | Trains SSM base model |
+| `pipelines/train_transformer.py` | Trains Transformer base model |
+| `pipelines/build_oof.py` | Builds OOF predictions for selected base models |
+| `pipelines/train_stack.py` | Trains stack/meta model (`mlp`, `ridge`, `xgboost`) on OOF features |
+| `pipelines/train_meta.py` | Trains pair-orchestrator meta-head over OOF-derived inputs |
+| `pipelines/run_full_pipeline.py` | Runs end-to-end flow: optuna -> base train -> build_oof -> meta train |
 
 ### 1) Train base models
 
 ```bash
-python pipelines/train_conv_lstm.py --config configs/train_conv_lstm.json
-python pipelines/train_gru.py --config configs/train_gru.json
-python pipelines/train_ssm.py --config configs/train_ssm.json
-python pipelines/train_transformer.py --config configs/train_transformer.json
+python pipelines/train_conv_lstm.py
+python pipelines/train_gru.py
+python pipelines/train_ssm.py
+python pipelines/train_transformer.py
 ```
 
-### 2) Build OOF dataset
+When `--config` is omitted, each train pipeline first tries `configs/optuna_best_<model>.json`, and falls back to default `configs/train_<model>.json`.
+
+### 2) Run Optuna tuning / export
+
+```bash
+python pipelines/optuna_tune.py --model gru --trials 30
+```
+
+Use `--force-save` to always overwrite the output config.
+Without `--force-save`, the config is overwritten only if the new Optuna `best_value` is higher than the saved one in config `_meta`.
+
+### 3) Build OOF dataset
 
 ```bash
 python pipelines/build_oof.py --config configs/build_oof.json
-# optional single-model OOF
 python pipelines/build_oof.py --config configs/build_oof.json --model conv_lstm
 ```
 
-### 3) Train stack model
+When `model_config` is missing for a model entry, `build_oof` resolves it from `optuna_best_<model>.json` if present, otherwise from default train config.
+
+### 4) Train stack model
 
 ```bash
 python pipelines/train_stack.py --config configs/train_stack_mlp.json
 python pipelines/train_stack.py --config configs/train_stack_ridge.json
-```
-
-### 4) Run Optuna tuning / export
-
-```bash
-python pipelines/optuna_tune.py --model gru --config configs/train_gru.json --trials 30 --storage sqlite:///artifacts/optuna/optuna.db
+python pipelines/train_stack.py --config configs/train_stack_xgboost.json
 ```
 
 ### 5) Train meta-head for pair orchestrator
@@ -93,23 +110,23 @@ python pipelines/optuna_tune.py --model gru --config configs/train_gru.json --tr
 python pipelines/train_meta.py --config configs/train_meta_oof.json
 ```
 
-## Inference notes
-
-`src/solution.py` contains the contest-style `PredictionModel`.
-
-By default, pair variant is `lstm_ssm`. To switch:
+### 6) Run full end-to-end pipeline
 
 ```bash
-export ORCHESTRATION_VARIANT=lstm_gru
+python pipelines/run_full_pipeline.py \
+  --models conv_lstm,gru,ssm \
+  --meta-models ridge,mlp \
+  --trials-per-model 20 \
+  --skip-optuna-models ssm \
+  --force-save
 ```
 
-or explicitly keep default:
+The script runs `optuna -> base train -> build_oof -> meta train`, supports model subsets, and writes `pipeline_summary.json`.
+`build_oof` receives both `weights_path` and `model_config` from the selected best configs so OOF is built with tuned parameters.
+For skipped models it reuses `configs/optuna_best_<model>.json`; if missing, it falls back to default train config.
 
-```bash
-export ORCHESTRATION_VARIANT=lstm_ssm
-```
 
-The model expects weights/config layout referenced from `src/constants.py`.
+
 
 ## Artifacts contract
 
@@ -121,40 +138,12 @@ Typical contents:
 
 - `config_snapshot/*.json` (or `config.json` when config path is inline)
 - `metrics_history.json` (where applicable)
-- `plots/*.png` (where applicable)
 - `weights/*`
 - `manifest.json`
 
-See `docs/airflow_job_api.md` for detailed Job API and manifest contract.
 
-## Testing
+## Installation  
 
-Current unit tests:
-
-- `tests/unit/test_orchestration_unit.py`
-
-Run tests (recommended through conda env):
-
-```bash
-conda run -n wunder-ts python -m unittest discover -s tests -p "test_*.py"
-```
-
-## Notes
-
-- `pipelines/*.py` currently prepend `src/` to `sys.path` so they work from repo root without `PYTHONPATH`.
-- Large trained checkpoints may be excluded from git. Recreate them by running pipelines or copying your existing `artifacts/` layout.
-
----
-
-## Installation and Usage Guide (Step-by-Step)
-
-This section is intentionally practical and end-to-end.
-
-### Step 0. Prerequisites
-
-- Linux/macOS (Windows via WSL is recommended).
-- Conda installed.
-- Enough disk space for datasets and artifacts.
 
 ### Step 1. Clone and enter project
 
@@ -170,58 +159,9 @@ conda env create -f environment.yml
 conda activate wunder-ts
 ```
 
-If env already exists:
-
-```bash
-conda env update -f environment.yml --prune
-```
-
 ### Step 3. Prepare data
 
 Place files:
 
 - `datasets/train.parquet`
 - `datasets/valid.parquet`
-
-### Step 4. Run baseline training flow
-
-```bash
-python pipelines/train_conv_lstm.py --config configs/train_conv_lstm.json
-python pipelines/train_gru.py --config configs/train_gru.json
-python pipelines/train_ssm.py --config configs/train_ssm.json
-```
-
-### Step 5. Build OOF and train stack
-
-```bash
-python pipelines/build_oof.py --config configs/build_oof.json
-python pipelines/train_stack.py --config configs/train_stack_mlp.json
-```
-
-### Step 6. (Optional) Tune with Optuna
-
-```bash
-python pipelines/optuna_tune.py --model gru --config configs/train_gru.json --trials 30 --storage sqlite:///artifacts/optuna/optuna.db
-```
-
-### Step 7. Train meta-head
-
-```bash
-python pipelines/train_meta.py --config configs/train_meta_oof.json
-```
-
-### Step 8. Validate with unit tests
-
-```bash
-conda run -n wunder-ts python -m unittest discover -s tests -p "test_*.py"
-```
-
-### Step 9. Use for inference
-
-Ensure required weights exist in paths referenced by `src/constants.py`, then integrate `PredictionModel` from `src/solution.py` in your host runtime.
-
-### Troubleshooting quick tips
-
-- If `python: command not found`, use `python3` or activate conda env.
-- If `torch` import fails, verify environment activation and pip section install from `environment.yml`.
-- If `optuna_tune` errors on base config path, pass a valid file path via config or CLI.

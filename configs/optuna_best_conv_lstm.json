@@ -1,69 +1,53 @@
 {
-  "model_name": "conv_lstm",
-  "best_value": 0.27227298155116886,
-  "best_trial_number": 10,
-  "metric": "contest_metric",
-  "base_config_path": "/home/mants/Documents/own/wunder-contest/configs/train_conv_lstm.json",
-  "best_trial_run_dir": "/home/mants/Documents/own/wunder-contest/artifacts/optuna/tune_conv_lstm/trial/20260411_133832",
-  "optuna_params": {
-    "lr": 0.00037414743055190367,
-    "batch_size": 8,
-    "cl_linear1": 64,
-    "cl_conv_dim": 192,
-    "cl_lstm_h": 256,
-    "cl_kw": 3,
-    "cl_lstm_layers": 2,
-    "cl_conv_act": "relu",
-    "cl_blk_act": "relu",
-    "cl_blk_bn": false,
-    "cl_blk_do": false,
-    "cl_blk_dropout": 0.23973067655381503,
-    "cl_blk_skip": "sum",
-    "cl_input_stack": false,
-    "cl_pre_lstm": "none",
-    "cl_post_lstm": "one",
-    "cl_post_h": 256,
-    "cl_post_act": "gelu",
-    "cl_post_bn": false,
-    "cl_post_do": false,
-    "cl_post_dropout": 0.028516972204282107,
-    "cl_post_skip": "sum"
-  },
-  "training_config": {
-    "model": {
-      "name": "conv_lstm",
-      "params": {
-        "input_dim": 32,
-        "linear1_dim": 64,
-        "conv_window": 3,
-        "conv_dim": 192,
-        "conv_activation": "relu",
-        "lstm_hidden": 256,
-        "lstm_num_layers": 2,
-        "output_dim": 2,
-        "block": {
-          "activation": "relu",
-          "use_batchnorm": false,
-          "use_dropout": false,
-          "dropout": 0.23973067655381503,
-          "skip_mode": "sum"
-        },
-        "post_lstm_stack": {
-          "hidden_dims": [
-            256
-          ],
-          "activation": "gelu",
-          "use_batchnorm": false,
-          "use_dropout": false,
-          "dropout": 0.028516972204282107,
-          "skip_mode": "sum"
-        }
+  "model": {
+    "name": "conv_lstm",
+    "params": {
+      "input_dim": 32,
+      "linear1_dim": 64,
+      "conv_window": 7,
+      "conv_dim": 128,
+      "conv_activation": "gelu",
+      "lstm_hidden": 320,
+      "lstm_num_layers": 3,
+      "output_dim": 2,
+      "block": {
+        "activation": "gelu",
+        "use_batchnorm": true,
+        "use_dropout": false,
+        "dropout": 0.24508874723926677,
+        "skip_mode": "concat"
       }
-    },
-    "epochs": 20,
-    "lr": 0.00037414743055190367,
-    "batch_size": 8,
-    "warmup_steps": 99,
-    "loss": "mse"
+    }
+  },
+  "epochs": 20,
+  "lr": 0.00031598829917882176,
+  "batch_size": 8,
+  "warmup_steps": 99,
+  "loss": "mse",
+  "_meta": {
+    "model_name": "conv_lstm",
+    "best_value": 0.26635344473806205,
+    "best_trial_number": 18,
+    "metric": "contest_metric",
+    "base_config_path": "/home/mants/Documents/own/wunder-contest/configs/train_conv_lstm.json",
+    "best_trial_run_dir": "/home/mants/Documents/own/wunder-contest/artifacts/optuna/tune_conv_lstm/trial/20260424_004100",
+    "optuna_params": {
+      "lr": 0.00031598829917882176,
+      "batch_size": 8,
+      "cl_linear1": 64,
+      "cl_conv_dim": 128,
+      "cl_lstm_h": 320,
+      "cl_kw": 7,
+      "cl_lstm_layers": 3,
+      "cl_conv_act": "gelu",
+      "cl_blk_act": "gelu",
+      "cl_blk_bn": true,
+      "cl_blk_do": false,
+      "cl_blk_dropout": 0.24508874723926677,
+      "cl_blk_skip": "concat",
+      "cl_input_stack": false,
+      "cl_pre_lstm": "none",
+      "cl_post_lstm": "none"
+    }
   }
 }

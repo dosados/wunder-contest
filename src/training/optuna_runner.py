@@ -1,9 +1,11 @@
 from __future__ import annotations
 import copy
+import gc
 import json
 from pathlib import Path
 from typing import Any
 import optuna
+import torch
 from constants import ARTIFACTS_ROOT
 from training.optuna_spaces import normalize_model_name, sample_model_params
 from training.tasks import run_training_job
@@ -16,6 +18,14 @@ def _repo_root() -> Path:
 
 def configs_dir() -> Path:
     return _repo_root() / "configs"
+
+
+def _cleanup_memory() -> None:
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
 
 
 def build_trial_training_config(
@@ -55,24 +65,33 @@ def run_optuna_study(
     )
 
     def objective(trial: optuna.Trial) -> float:
-        cfg = build_trial_training_config(
-            base, model_name, trial, trial_epochs=trial_epochs
-        )
-        process = f"optuna_{normalize_model_name(model_name)}"
-        run_dir = make_run_dir(
-            Path(ARTIFACTS_ROOT) / "optuna",
-            f"{resolved_study_name}/trial",
-        )
-        result, rd = run_training_job(
-            cfg,
-            process,
-            run_dir=run_dir,
-            snapshot_original_config=None,
-        )
-        trial.set_user_attr("run_dir", str(rd))
-        trial.set_user_attr("best_metric", float(result.best_metric))
-        trial.set_user_attr("best_epoch", int(result.best_epoch))
-        return float(result.best_metric)
+        cfg = None
+        process = None
+        run_dir = None
+        result = None
+        rd = None
+        try:
+            cfg = build_trial_training_config(
+                base, model_name, trial, trial_epochs=trial_epochs
+            )
+            process = f"optuna_{normalize_model_name(model_name)}"
+            run_dir = make_run_dir(
+                Path(ARTIFACTS_ROOT) / "optuna",
+                f"{resolved_study_name}/trial",
+            )
+            result, rd = run_training_job(
+                cfg,
+                process,
+                run_dir=run_dir,
+                snapshot_original_config=None,
+            )
+            trial.set_user_attr("run_dir", str(rd))
+            trial.set_user_attr("best_metric", float(result.best_metric))
+            trial.set_user_attr("best_epoch", int(result.best_epoch))
+            return float(result.best_metric)
+        finally:
+            del cfg, process, run_dir, result, rd
+            _cleanup_memory()
 
     create_kwargs: dict[str, Any] = {"direction": "maximize"}
     if resolved_study_name:
@@ -88,6 +107,7 @@ def run_optuna_study(
         study.best_value,
         study.best_trial.number,
     )
+    _cleanup_memory()
     return study
 
 
@@ -97,7 +117,8 @@ def save_best_optuna_result(
     model_name: str,
     *,
     output_path: str | Path | None = None,
-) -> Path:
+    force_save: bool = False,
+) -> dict[str, Any]:
     base = load_json_config(base_config_path)
     best = study.best_trial
     run_dir = Path(best.user_attrs["run_dir"])
@@ -107,9 +128,10 @@ def save_best_optuna_result(
     production_epochs = int(base.get("epochs", best_trial_cfg.get("epochs", 20)))
     best_trial_cfg["epochs"] = production_epochs
     out = copy.deepcopy(best_trial_cfg)
+    new_best_value = float(study.best_value)
     out["_meta"] = {
         "model_name": normalize_model_name(model_name),
-        "best_value": float(study.best_value),
+        "best_value": new_best_value,
         "best_trial_number": int(best.number),
         "metric": "contest_metric",
         "base_config_path": str(Path(base_config_path).resolve()),
@@ -121,8 +143,28 @@ def save_best_optuna_result(
         if output_path is not None
         else configs_dir() / f"optuna_best_{normalize_model_name(model_name)}.json"
     )
-    save_json(out, out_path)
-    return out_path
+    previous_best_value = None
+    if out_path.is_file():
+        previous = load_json_config(out_path)
+        if isinstance(previous, dict):
+            meta = previous.get("_meta")
+            if isinstance(meta, dict):
+                prev_value = meta.get("best_value")
+                if isinstance(prev_value, (float, int)):
+                    previous_best_value = float(prev_value)
+    should_save = (
+        force_save
+        or previous_best_value is None
+        or new_best_value > previous_best_value
+    )
+    if should_save:
+        save_json(out, out_path)
+    return {
+        "path": out_path,
+        "saved": should_save,
+        "previous_best_value": previous_best_value,
+        "new_best_value": new_best_value,
+    }
 
 
 def export_best_config_from_storage(
@@ -132,13 +174,15 @@ def export_best_config_from_storage(
     study_name: str,
     storage: str,
     output_path: str | Path | None = None,
+    force_save: bool = False,
 ) -> dict[str, Any]:
     study = optuna.load_study(study_name=study_name, storage=storage)
-    save_path = save_best_optuna_result(
+    save_result = save_best_optuna_result(
         study,
         base_config_path,
         model_name,
         output_path=output_path,
+        force_save=force_save,
     )
     best = study.best_trial
     run_dir = Path(best.user_attrs["run_dir"])
@@ -146,6 +190,9 @@ def export_best_config_from_storage(
         "best_value": float(study.best_value),
         "best_trial_number": int(best.number),
         "best_trial_run_dir": str(run_dir),
-        "train_ready_config_path": str(save_path),
+        "train_ready_config_path": str(save_result["path"]),
+        "config_saved": bool(save_result["saved"]),
+        "previous_best_value": save_result["previous_best_value"],
+        "new_best_value": save_result["new_best_value"],
         "study_name": study.study_name,
     }
