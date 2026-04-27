@@ -1,8 +1,8 @@
-## Wunder Contest — Time Series Forecasting
+# Wunder Contest — Time Series Forecasting
 
 Repository with training, stacking, tuning, and inference code for my solution of the Wunder Fund sequence forecasting task. 
 
-# Competition overview
+### Competition overview
 
 Competition task is to forecast market markers using time series data.
 
@@ -12,13 +12,13 @@ Key metric is weighted Pearson correlation of target columns to true values.
 
 Models inference are ran on single-thread cpu with 1 hour time limit, therefore large models such as transformers cannot be computed in time. 
 
-# About my solution and results
+### About my solution and results
 
 My best solution was a stacking of models. It has lstm and gru models as base models and MLP as meta model.
 
 It resulted a metric value of 0.289, which is top 18% of leaderboard.
 
-# About this repository
+### About this repository
 
 This repository is a system, designed for a automatic tuning of included models, stacking them and evaluating resulted predictions.
 
@@ -41,14 +41,8 @@ Functions:
 | `datasets/` | Expected location for `train.parquet` and `valid.parquet` |
 | `tests/` | Unit tests (`unittest`) |
 
-### Pipeline flow
 
-1. `pipelines/*.py` parse CLI arguments and load JSON config.
-2. The pipeline creates a run directory under `artifacts/<process>/<run_id>/`.
-3. Training/tuning/stacking logic is executed from `src/`.
-4. `manifest.json` and extra artifacts (`weights`, `plots`, `metrics_history.json`) are written for the run.
-
-## Data layout
+### Data layout
 
 Put competition parquet files here:
 
@@ -90,7 +84,7 @@ python pipelines/train_stack.py --config configs/train_stack_xgboost.json
 ### 4) Run Optuna tuning / export
 
 ```bash
-python pipelines/optuna_tune.py --model gru --trials 30 --storage sqlite:///artifacts/optuna/optuna.db
+python pipelines/optuna_tune.py --model gru --trials 30 
 ```
 
 Use `--force-save` to always overwrite output config.
@@ -117,23 +111,8 @@ The script runs `optuna -> base train -> build_oof -> meta train`, supports mode
 `build_oof` receives both `weights_path` and `model_config` from the selected best configs so OOF is built with tuned parameters.
 For skipped models it reuses `configs/optuna_best_<model>.json`; if missing, it falls back to default train config.
 
-## Inference notes
 
-`src/solution.py` contains the contest-style `PredictionModel`.
 
-By default, pair variant is `lstm_ssm`. To switch:
-
-```bash
-export ORCHESTRATION_VARIANT=lstm_gru
-```
-
-or explicitly keep default:
-
-```bash
-export ORCHESTRATION_VARIANT=lstm_ssm
-```
-
-The model expects weights/config layout referenced from `src/constants.py`.
 
 ## Artifacts contract
 
@@ -145,34 +124,12 @@ Typical contents:
 
 - `config_snapshot/*.json` (or `config.json` when config path is inline)
 - `metrics_history.json` (where applicable)
-- `plots/*.png` (where applicable)
 - `weights/*`
 - `manifest.json`
 
-## Testing
 
-Run tests (recommended through conda env):
+## Installation and Usage Guide 
 
-```bash
-conda run -n wunder-ts python -m unittest discover -s tests -p "test_*.py"
-```
-
-## Notes
-
-- `pipelines/*.py` currently prepend `src/` to `sys.path` so they work from repo root without `PYTHONPATH`.
-- Large trained checkpoints may be excluded from git. Recreate them by running pipelines or copying your existing `artifacts/` layout.
-
----
-
-## Installation and Usage Guide (Step-by-Step)
-
-This section is intentionally practical and end-to-end.
-
-### Step 0. Prerequisites
-
-- Linux/macOS (Windows via WSL is recommended).
-- Conda installed.
-- Enough disk space for datasets and artifacts.
 
 ### Step 1. Clone and enter project
 
@@ -186,12 +143,6 @@ cd wunder-contest
 ```bash
 conda env create -f environment.yml
 conda activate wunder-ts
-```
-
-If env already exists:
-
-```bash
-conda env update -f environment.yml --prune
 ```
 
 ### Step 3. Prepare data
@@ -219,7 +170,7 @@ python pipelines/train_stack.py --config configs/train_stack_mlp.json
 ### Step 6. (Optional) Tune with Optuna
 
 ```bash
-python pipelines/optuna_tune.py --model gru --config configs/train_gru.json --trials 30 --storage sqlite:///artifacts/optuna/optuna.db
+python pipelines/optuna_tune.py --model gru --config configs/train_gru.json --trials 30 
 ```
 
 ### Step 7. Train meta-head
@@ -231,15 +182,8 @@ python pipelines/train_meta.py --config configs/train_meta_oof.json
 ### Step 8. Validate with unit tests
 
 ```bash
-conda run -n wunder-ts python -m unittest discover -s tests -p "test_*.py"
+python -m unittest discover -s tests -p "test_*.py"
 ```
 
-### Step 9. Use for inference
 
-Ensure required weights exist in paths referenced by `src/constants.py`, then integrate `PredictionModel` from `src/solution.py` in your host runtime.
 
-### Troubleshooting quick tips
-
-- If `python: command not found`, use `python3` or activate conda env.
-- If `torch` import fails, verify environment activation and pip section install from `environment.yml`.
-- If `optuna_tune` errors on base config path, pass a valid file path via config or CLI.
