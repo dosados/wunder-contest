@@ -1,22 +1,34 @@
-# Wunder Contest — Time Series Forecasting
+## Wunder Contest — Time Series Forecasting
 
-Repository with training, stacking, tuning, and inference code for the Wunder Fund sequence forecasting task.
+Repository with training, stacking, tuning, and inference code for my solution of the Wunder Fund sequence forecasting task. 
 
-## Current status
+# Competition overview
 
-This repo is in a **pipeline-oriented** state with:
+Competition task is to forecast market markers using time series data.
 
-- CLI pipelines in `pipelines/` for train, OOF, stack, meta, and Optuna flows.
-- Stable run artifacts (`artifacts/<process>/<run_id>/...`) with per-run `manifest.json`.
-- Pair-based inference (`lstm_gru` or `lstm_ssm`) and optional OOF-trained meta-head.
+Data is a set of different market series, each snapshot in which includes many market features.
 
-## Competition context (short)
+Key metric is weighted Pearson correlation of target columns to true values. 
 
-- Public leaderboard: approximately top ~18%.
-- Metric: weighted Pearson-based score over targets `t0`, `t1` (see `src/metrics.py`).
-- Inference design: paired models via `PairOrchestrator` (`lstm_gru` or `lstm_ssm`) with optional OOF-trained meta-head.
+Models inference are ran on single-thread cpu with 1 hour time limit, therefore large models such as transformers cannot be computed in time. 
 
-## Architecture
+# About my solution and results
+
+My best solution was a stacking of models. It has lstm and gru models as base models and MLP as meta model.
+
+It resulted a metric value of 0.289, which is top 18% of leaderboard.
+
+# About this repository
+
+This repository is a system, designed for a automatic tuning of included models, stacking them and evaluating resulted predictions.
+
+Functions:
+-Hyperparameters search with optuna for each model
+-Building OOF datasets for stacking 
+-Stacking chosen models with many different meta-heads
+-Evaluation of predictions on validation holdout
+
+# Architecture
 
 ### Top-level layout
 
