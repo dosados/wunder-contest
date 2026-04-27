@@ -1,32 +1,32 @@
 # Wunder Contest — Time Series Forecasting
 
-Repository with training, stacking, tuning, and inference code for my solution of the Wunder Fund sequence forecasting task. 
+This repository contains training, stacking, tuning, and inference code for my solution to the Wunder Fund sequence-forecasting task.
 
 ### Competition overview
 
-Competition task is to forecast market markers using time series data.
+The competition task is to forecast market indicators from time-series data.
 
-Data is a set of different market series, each snapshot in which includes many market features.
+The dataset contains multiple market series, and each snapshot includes many market features.
 
-Key metric is weighted Pearson correlation of target columns to true values. 
+The key metric is the weighted Pearson correlation between predicted target columns and ground truth values.
 
-Models inference are ran on single-thread cpu with 1 hour time limit, therefore large models such as transformers cannot be computed in time. 
+Inference is executed on a single-threaded CPU with a 1-hour time limit, so large models (for example, heavy transformers) are not practical.
 
 ### About my solution and results
 
-My best solution was a stacking of models. It has lstm and gru models as base models and MLP as meta model.
+My best solution is a stacked ensemble: LSTM and GRU base models with an MLP meta-model.
 
-It resulted a metric value of 0.289, which is top 18% of leaderboard.
+It achieved a metric value of `0.289`, which is in the top 18% of the leaderboard.
 
 ### About this repository
 
-This repository is a system, designed for a automatic tuning of included models, stacking them and evaluating resulted predictions.
+This repository is a system designed for automatic model tuning, stacking, and evaluation of resulting predictions.
 
-Functions:
--Hyperparameters search with optuna for each model
--Building OOF datasets for stacking 
--Stacking chosen models with many different meta-heads
--Evaluation of predictions on validation holdout
+Key capabilities:
+- Hyperparameter search with Optuna for each model
+- Building OOF datasets for stacking
+- Training stack models with different meta-heads
+- Evaluating predictions on a validation holdout
 
 # Architecture
 
@@ -51,7 +51,21 @@ Put competition parquet files here:
 
 Feature schema is defined by constants in `src/constants.py` (`p*`, `v*`, `dp*`, `dv*`), targets are `t0`, `t1`.
 
-## Main workflows
+## Workflows
+
+### Entrypoints
+
+| Entrypoint | Purpose |
+|---|---|
+| `pipelines/optuna_tune.py` | Runs Optuna for one base model and exports `configs/optuna_best_<model>.json` |
+| `pipelines/train_conv_lstm.py` | Trains Conv-LSTM base model |
+| `pipelines/train_gru.py` | Trains GRU base model |
+| `pipelines/train_ssm.py` | Trains SSM base model |
+| `pipelines/train_transformer.py` | Trains Transformer base model |
+| `pipelines/build_oof.py` | Builds OOF predictions for selected base models |
+| `pipelines/train_stack.py` | Trains stack/meta model (`mlp`, `ridge`, `xgboost`) on OOF features |
+| `pipelines/train_meta.py` | Trains pair-orchestrator meta-head over OOF-derived inputs |
+| `pipelines/run_full_pipeline.py` | Runs end-to-end flow: optuna -> base train -> build_oof -> meta train |
 
 ### 1) Train base models
 
@@ -64,7 +78,16 @@ python pipelines/train_transformer.py
 
 When `--config` is omitted, each train pipeline first tries `configs/optuna_best_<model>.json`, and falls back to default `configs/train_<model>.json`.
 
-### 2) Build OOF dataset
+### 2) Run Optuna tuning / export
+
+```bash
+python pipelines/optuna_tune.py --model gru --trials 30
+```
+
+Use `--force-save` to always overwrite the output config.
+Without `--force-save`, the config is overwritten only if the new Optuna `best_value` is higher than the saved one in config `_meta`.
+
+### 3) Build OOF dataset
 
 ```bash
 python pipelines/build_oof.py --config configs/build_oof.json
@@ -73,22 +96,13 @@ python pipelines/build_oof.py --config configs/build_oof.json --model conv_lstm
 
 When `model_config` is missing for a model entry, `build_oof` resolves it from `optuna_best_<model>.json` if present, otherwise from default train config.
 
-### 3) Train stack model
+### 4) Train stack model
 
 ```bash
 python pipelines/train_stack.py --config configs/train_stack_mlp.json
 python pipelines/train_stack.py --config configs/train_stack_ridge.json
 python pipelines/train_stack.py --config configs/train_stack_xgboost.json
 ```
-
-### 4) Run Optuna tuning / export
-
-```bash
-python pipelines/optuna_tune.py --model gru --trials 30 
-```
-
-Use `--force-save` to always overwrite output config.
-Without `--force-save`, config is overwritten only if the new Optuna `best_value` is higher than the saved one in config `_meta`.
 
 ### 5) Train meta-head for pair orchestrator
 
@@ -128,7 +142,7 @@ Typical contents:
 - `manifest.json`
 
 
-## Installation and Usage Guide 
+## Installation  
 
 
 ### Step 1. Clone and enter project
@@ -151,39 +165,3 @@ Place files:
 
 - `datasets/train.parquet`
 - `datasets/valid.parquet`
-
-### Step 4. Run baseline training flow
-
-```bash
-python pipelines/train_conv_lstm.py --config configs/train_conv_lstm.json
-python pipelines/train_gru.py --config configs/train_gru.json
-python pipelines/train_ssm.py --config configs/train_ssm.json
-```
-
-### Step 5. Build OOF and train stack
-
-```bash
-python pipelines/build_oof.py --config configs/build_oof.json
-python pipelines/train_stack.py --config configs/train_stack_mlp.json
-```
-
-### Step 6. (Optional) Tune with Optuna
-
-```bash
-python pipelines/optuna_tune.py --model gru --config configs/train_gru.json --trials 30 
-```
-
-### Step 7. Train meta-head
-
-```bash
-python pipelines/train_meta.py --config configs/train_meta_oof.json
-```
-
-### Step 8. Validate with unit tests
-
-```bash
-python -m unittest discover -s tests -p "test_*.py"
-```
-
-
-
